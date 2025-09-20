@@ -1,0 +1,741 @@
+<!doctype html>
+<html lang="ja" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>コード譜エディ太</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root{ --staff-stroke:#3b475a; --staff-edge:#55637a; }
+    .dark{ --staff-stroke:#cbd5e1; --staff-edge:#94a3b8; }
+    body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+    .chip{ display:inline-flex;align-items:center;border:1px solid #cbd5e1;border-radius:999px;padding:6px 10px;background:#fff;font-weight:700;cursor:grab;user-select:none }
+    .dark .chip{ background:#0b1220;border-color:#334155;color:#e5e7eb; }
+    .item-pill{ position:absolute;transform:translate(-50%,-50%);padding:2px 6px;font-size:11px;border-radius:6px;border:1px solid #cbd5e1;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.08) }
+    .dark .item-pill{ background:#0b1220;border-color:#334155;color:#e5e7eb;box-shadow:0 1px 2px rgba(0,0,0,.4) }
+    .item-pill.scale{ background:#059669;color:#fff;border-color:transparent;transform:translate(-50%, -40%) }
+    .dark .item-pill.scale{ background:#047857;color:#e2e8f0;border-color:transparent }
+    .item-pill.selected{ outline:2px solid #3b82f6; outline-offset:1px; box-shadow:0 0 0 3px rgba(59,130,246,.25) }
+    .item-ghost{ position:absolute;transform:translate(-50%,-50%);padding:2px 6px;font-size:11px;border-radius:6px;border:1px dashed #64748b;background:#f8fafc; z-index:50; opacity:.9 }
+    .dark .item-ghost{ border-color:#94a3b8;background:#0f172a;color:#e2e8f0 }
+    .drag-guide{ position:absolute; top:0; bottom:0; width:1px; background:#60a5fa; opacity:.85; }
+    .no-select{ user-select:none;-webkit-user-select:none }
+    [contenteditable][data-placeholder]:empty:before{ content: attr(data-placeholder); color: #94a3b8; }
+    @media print{
+      .print-title{ font-size: 20pt !important; font-weight: 700 !important; margin-bottom: 6pt !important; }
+      .print-sub{ font-size: 12pt !important; color: #334155 !important; margin-bottom: 16pt !important; }
+      .no-print{ display:none !important; }
+    }
+  </style>
+</head>
+<body class="bg-slate-900 text-slate-100">
+  <div id="root" class="min-h-screen"></div>
+
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <script>
+    const { useRef, useState, useEffect } = React;
+
+    const ROOTS = ["C","C#","Db","D","D#","Eb","E","F","F#","Gb","G","G#","Ab","A","A#","Bb","B"];
+    const BASSES = ["", ...ROOTS];
+    const BODIES = ["maj","m","7","maj7","m7","m7b5","dim","aug","sus2","sus4","7sus4","add9","6","m6"];
+    const TENSIONS = ["", "b9","9","#9","11","#11","b13","13"];
+
+    const SCALE_GROUPS = {
+      "Utility": ["Chromatic Scale (All Notes)"],
+      "Major (Diatonic Modes)": ["Major (Ionian)", "Dorian", "Phrygian", "Lydian", "Mixolydian", "Natural Minor (Aeolian)", "Locrian"],
+      "Melodic Minor Modes": ["Melodic Minor","Dorian b2","Lydian #5 (Lydian Augmented)","Lydian b7 (Lydian Dominant)","Mixolydian b6","Aeolian b5","Altered Scale (Super Locrian)"],
+      "Harmonic Minor Modes": ["Harmonic Minor","Locrian natural 6","Ionian #5","Dorian #4","Mixolydian b9 b13 (HP5)","Lydian #2","Altered Dominant bb7 (Super Locrian)"],
+      "Symmetric (Diminished)": ["Combination Diminished (Half–Whole)","Diminished (Whole–Half)"],
+      "Symmetric (Augmented)": ["Augmented Scale"],
+      "Pentatonic / Blues": ["Major Pentatonic","Minor Pentatonic","Major Blues Scale","Minor Blues Scale","Dorian Pentatonic","Mixolydian Pentatonic"],
+      "Jazz Oriented": ["Harmonic Major","Double Harmonic Major","Whole Tone Scale","Enigmatic Scale","Bebop Major Scale","Bebop Dominant Scale","Bebop Minor Scale"],
+      "World Scales": ["Hungarian Minor","Neapolitan Minor","Neapolitan Major","Persian Scale","Arabian Scale","Raga Todi","Japanese Scale (In Sen)","Japanese Scale (In)","Japanese Scale (Yo)"]
+    };
+
+    function StaffSVG(){
+      const HEIGHT = 40; const GAP = 8;
+      return React.createElement('svg', { width:'100%', height:HEIGHT, viewBox:'0 0 1200 '+HEIGHT, preserveAspectRatio:'none', className:'block' },
+        React.createElement('g', { transform:'translate(0,0)' },
+          [0,1,2,3,4].map(i => React.createElement('line', { key:i, x1:0, y1:i*GAP, x2:1200, y2:i*GAP, stroke:'var(--staff-stroke)', strokeWidth:1.4 }))
+          .concat([
+            React.createElement('line', { key:'L', x1:0, y1:0, x2:0, y2:HEIGHT, stroke:'var(--staff-edge)', strokeWidth:1.6 }),
+            React.createElement('line', { key:'R', x1:1200, y1:0, x2:1200, y2:HEIGHT, stroke:'var(--staff-edge)', strokeWidth:1.6 })
+          ])
+        )
+      );
+    }
+
+    function MeasureBox(props){
+      const {
+        rowIdx, index, fr, totalFr, isLast, selected, onSelect,
+        onDragBetween, onDragRight, cell, onDropPlace,
+        measureRef,
+        selection, onItemMouseDown, dragPreview
+      } = props;
+
+      const FIXED_H = 60, EXTRA = 40;
+      const style = { width: ((fr/totalFr)*100) + '%', minWidth: '120px', height: (FIXED_H + EXTRA) + 'px' };
+
+      const onDrop = (e) => {
+        e.preventDefault();
+        const rect = e.currentTarget.getBoundingClientRect();
+        const x = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+        const label = e.dataTransfer.getData('text/plain');
+        if (label) onDropPlace(x, label);
+      };
+
+      const selIsThisMeasure = selection && selection.kind==='measure' && selection.row===rowIdx && selection.col===index;
+
+      return React.createElement('div', {
+        ref: measureRef,
+        onClick: onSelect,
+        onDragOver: (e)=>e.preventDefault(),
+        onDrop,
+        className: 'relative flex-shrink-0 group cursor-pointer ' + ((selected||selIsThisMeasure) ? 'ring-2 ring-blue-500' : ''),
+        style
+      },
+        React.createElement('div', { className:'absolute left-0 right-0', style:{ top:'34px' } }, React.createElement(StaffSVG,null)),
+        React.createElement('div', { className:'absolute left-0 right-0', style:{ top:'20px' } },
+          (cell.chords||[]).map((c, idx) => {
+            const isSelected = selection && selection.kind==='item' && selection.type==='chord' && selection.row===rowIdx && selection.col===index && selection.index===idx;
+            return React.createElement('span', {
+                key:idx,
+                className:'item-pill ' + (isSelected ? 'selected ' : ''),
+                style:{ left:(c.x*100)+'%' },
+                onMouseDown:(e)=>{ e.stopPropagation(); onItemMouseDown('chord', idx, e); },
+                onClick:(e)=>{ e.stopPropagation(); },
+                draggable:false,
+                onDragStart:(e)=>e.preventDefault()
+            }, c.text);
+          })
+        ),
+        React.createElement('div', { className:'absolute left-0 right-0', style:{ top:(FIXED_H+20)+'px' } },
+          (cell.scales||[]).map((s, idx) => {
+            const isSelected = selection && selection.kind==='item' && selection.type==='scale' && selection.row===rowIdx && selection.col===index && selection.index===idx;
+            return React.createElement('span', {
+                key:idx,
+                className:'item-pill scale ' + (isSelected ? 'selected ' : ''),
+                style:{ left:(s.x*100)+'%' },
+                onMouseDown:(e)=>{ e.stopPropagation(); onItemMouseDown('scale', idx, e); },
+                onClick:(e)=>{ e.stopPropagation(); },
+                draggable:false,
+                onDragStart:(e)=>e.preventDefault()
+            }, s.text);
+          })
+        ),
+        (dragPreview && dragPreview.active && dragPreview.row===rowIdx && dragPreview.col===index) && React.createElement('div', {
+          className:'absolute left-0 right-0 pointer-events-none',
+          style:{ top: dragPreview.type==='chord' ? '20px' : (FIXED_H+6)+'px' }
+        },
+          React.createElement('div', { className:'drag-guide', style:{ left:(dragPreview.x*100)+'%' } }),
+          React.createElement('span', { className: 'item-ghost ' + (dragPreview.type==='scale'?'scale':''), style:{ left:(dragPreview.x*100)+'%' } }, dragPreview.text)
+        ),
+        (!isLast && React.createElement('div', { onMouseDown:onDragBetween, className:'absolute top-0 right-0 h-full w-2 cursor-col-resize bg-transparent z-10' },
+          React.createElement('div', { className:'absolute inset-y-4 right-0 w-px bg-slate-600/70' })
+        )),
+        (isLast && React.createElement('div', { onMouseDown:onDragRight, className:'absolute top-0 right-0 h-full w-2 cursor-col-resize bg-transparent z-10' },
+          React.createElement('div', { className:'absolute inset-y-4 right-0 w-px bg-slate-600/70' })
+        ))
+      );
+    }
+
+    function App(){
+      const containerRef = useRef(null);
+      const rowsRef = useRef([]);
+      const measureRefs = useRef([]);
+      const [rows, setRows] = useState([[1]]);
+      const [selected, setSelected] = useState(null);
+      const MIN_FR = 0.35;
+
+      const [titleText, setTitleText] = useState('タイトル');
+      const [scoreKey, setScoreKey] = useState('');
+      const titleRef = useRef(null);
+
+      useEffect(()=>{ document.title = 'コード譜エディ太'; }, []);
+
+      const [selection, setSelection] = useState(null);
+
+      const [keySel, setKeySel] = useState('C');
+      const [scaleSel, setScaleSel] = useState('Major (Ionian)');
+      const [chKey, setChKey] = useState('C');
+      const [chBody, setChBody] = useState('maj');
+      const [chTension, setChTension] = useState('');
+      const [chBass, setChBass] = useState('');
+
+      const [placeTool, setPlaceTool] = useState('chord');
+
+      const [placements, setPlacements] = useState([[ { chords: [], scales: [] } ]]);
+
+      const fileInputRef = useRef(null);
+
+      const DRAG_THRESHOLD_PX = 3;
+      const [dragState, setDragState] = useState({
+        active:false, type:null, text:'', from:null, to:null,
+        offsetX:0, startX:0, startY:0, moved:false
+      });
+
+      useEffect(()=>{ measureRefs.current = rows.map(()=>[]); }, [rows.length]);
+
+      const chordLabel = () => {
+        const q = (chBody==='maj') ? '' : chBody;
+        const t = chTension ? '('+chTension+')' : '';
+        const b = chBass ? '/'+chBass : '';
+        return chKey + q + t + b;
+      };
+      const scaleLabel = () => keySel + ' ' + scaleSel;
+
+      useEffect(()=>{}, [placeTool, chKey, chBody, chTension, chBass, keySel, scaleSel]);
+
+      const pxToFr = (rowIdx, px, totalFr) => {
+        const w = (rowsRef.current[rowIdx] && rowsRef.current[rowIdx].clientWidth) || (containerRef.current && containerRef.current.clientWidth) || 1;
+        return (px / w) * totalFr;
+      };
+
+      const addMeasureHorizontal = (rowIdx, index) => {
+        setRows(prev => prev.map((r, ri) => {
+          if (ri !== rowIdx) return r;
+          const next = r.slice();
+          const half = Math.max(MIN_FR, next[index] / 2);
+          next[index] = half; next.splice(index + 1, 0, half);
+          return next;
+        }));
+        setPlacements(prev => prev.map((prow, pri) => {
+          if (pri !== rowIdx) return prow;
+          const next = prow.map(c => ({ chords:[...c.chords], scales:[...c.scales] }));
+          next.splice(index + 1, 0, { chords: [], scales: [] });
+          return next;
+        }));
+        setSelected({ row: rowIdx, col: index + 1 });
+        setSelection({ kind:'measure', row: rowIdx, col: index + 1 });
+      };
+
+      const addMeasureVertical = (rowIdx) => {
+        setRows(prev => { const copy = prev.slice(); copy.splice(rowIdx + 1, 0, [1]); return copy; });
+        setPlacements(prev => { const copy = prev.map(row => row.map(c => ({ chords:[...c.chords], scales:[...c.scales] }))); copy.splice(rowIdx + 1, 0, [ { chords: [], scales: [] } ]); return copy; });
+        setSelected({ row: rowIdx + 1, col: 0 });
+        setSelection({ kind:'measure', row: rowIdx + 1, col: 0 });
+      };
+
+      const deleteItem = (sel)=>{
+        setPlacements(prev => prev.map((prow, rIdx) => {
+          if (rIdx !== sel.row) return prow;
+          return prow.map((cell, cIdx) => {
+            if (cIdx !== sel.col) return cell;
+            const next = { chords:[...cell.chords], scales:[...cell.scales] };
+            if (sel.type==='chord') next.chords.splice(sel.index,1);
+            else next.scales.splice(sel.index,1);
+            return next;
+          });
+        }));
+        setSelection(null);
+      };
+
+      const clearMeasure = (rowIdx, colIdx)=>{
+        setPlacements(prev => prev.map((prow, rIdx) => {
+          if (rIdx !== rowIdx) return prow;
+          return prow.map((cell, cIdx) => (cIdx===colIdx ? { chords:[], scales:[] } : cell));
+        }));
+        setSelection(null);
+      };
+
+      function deleteMeasure(rowIdx, colIdx){
+        if (rows.length === 1 && rows[0].length === 1) {
+          clearMeasure(0, 0);
+          setSelected({ row:0, col:0 });
+          setSelection({ kind:'measure', row:0, col:0 });
+          return;
+        }
+        setRows(prev => {
+          const copy = prev.map(r => r.slice());
+          if (!copy[rowIdx]) return prev;
+          copy[rowIdx].splice(colIdx, 1);
+          if (copy[rowIdx].length === 0) copy.splice(rowIdx, 1);
+          return copy;
+        });
+        setPlacements(prev => {
+          const copy = prev.map(row => row.map(c => ({ chords:[...c.chords], scales:[...c.scales] })));
+          if (!copy[rowIdx]) return prev;
+          copy[rowIdx].splice(colIdx, 1);
+          if (copy[rowIdx].length === 0) copy.splice(rowIdx, 1);
+          return copy;
+        });
+        setSelection(null);
+        setSelected(null);
+      }
+
+      const dropPlace = (rowIdx, colIdx, x, labelFromDrop) => {
+        const text = labelFromDrop || (placeTool==='chord' ? chordLabel() : scaleLabel());
+        const type = (placeTool==='chord') ? 'chord' : 'scale';
+        placeNewItem(type, rowIdx, colIdx, x, text);
+      };
+
+      function placeNewItem(type, rowIdx, colIdx, x, text){
+        setPlacements(prev => prev.map((prow, rIdx) => {
+          if (rIdx !== rowIdx) return prow;
+          const nextRow = prow.map(c => ({ chords:[...c.chords], scales:[...c.scales] }));
+          const target = nextRow[colIdx] || { chords: [], scales: [] };
+          if (type === 'chord') target.chords.push({ x, text });
+          else target.scales.push({ x, text });
+          nextRow[colIdx] = target;
+          return nextRow;
+        }));
+      }
+
+      function onItemMouseDownFactory(rowIdx, colIdx){
+        return (type, itemIndex, e) => {
+          e.preventDefault();
+          setSelection({ kind:'item', type, row:rowIdx, col:colIdx, index:itemIndex });
+
+          const ref = measureRefs.current[rowIdx]?.[colIdx];
+          if (!ref) return;
+          const rect = ref.getBoundingClientRect();
+
+          const cell = (placements[rowIdx] && placements[rowIdx][colIdx]) || { chords:[], scales:[] };
+          const src = (type==='chord' ? cell.chords[itemIndex] : cell.scales[itemIndex]);
+          if (!src) return;
+
+          const xInMeasure = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+
+          setDragState({
+            active:true, type, text: src.text,
+            from:{ row: rowIdx, col: colIdx, index: itemIndex, x: src.x },
+            to:{ row: rowIdx, col: colIdx, x: xInMeasure },
+            offsetX: xInMeasure - src.x,
+            startX: e.clientX, startY: e.clientY, moved:false
+          });
+          window.addEventListener('mousemove', onItemMouseMove);
+          window.addEventListener('mouseup', onItemMouseUp);
+          document.body.classList.add('no-select');
+        };
+      }
+
+      function findMeasureAt(clientX, clientY){
+        for (let r=0; r<measureRefs.current.length; r++){
+          const rowArr = measureRefs.current[r] || [];
+          for (let c=0; c<rowArr.length; c++){
+            const el = rowArr[c];
+            if (!el) continue;
+            const rect = el.getBoundingClientRect();
+            if (clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom){
+              const x = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+              return { row:r, col:c, x };
+            }
+          }
+        }
+        return null;
+      }
+
+      function onItemMouseMove(e){
+        setDragState(prev => {
+          if (!prev.active) return prev;
+          const moved = prev.moved ||
+            Math.abs(e.clientX - (prev.startX||0)) > DRAG_THRESHOLD_PX ||
+            Math.abs(e.clientY - (prev.startY||0)) > DRAG_THRESHOLD_PX;
+          if (!moved) return prev;
+          const hit = findMeasureAt(e.clientX, e.clientY);
+          if (!hit) return prev;
+          return { ...prev, moved:true, to: { row: hit.row, col: hit.col, x: hit.x } };
+        });
+      }
+
+      function onItemMouseUp(){
+        setDragState(prev => {
+          if (!prev.active) return prev;
+          const { type, text, from, to } = prev;
+
+          const cleanup = () => {
+            window.removeEventListener('mousemove', onItemMouseMove);
+            window.removeEventListener('mouseup', onItemMouseUp);
+            document.body.classList.remove('no-select');
+          };
+
+          if (!to || typeof to.row!== 'number' || typeof to.col!== 'number') {
+            cleanup();
+            return { active:false, type:null, text:'', from:null, to:null, offsetX:0, startX:0, startY:0, moved:false };
+          }
+
+          if (!prev.moved) {
+            setSelection({ kind:'item', type, row: from.row, col: from.col, index: from.index });
+            cleanup();
+            return { active:false, type:null, text:'', from:null, to:null, offsetX:0, startX:0, startY:0, moved:false };
+          }
+
+          let insertedIndex = 0;
+          setPlacements(old => {
+            const removed = old.map((prow, rIdx) => {
+              if (rIdx !== from.row) return prow;
+              return prow.map((cell, cIdx) => {
+                if (cIdx !== from.col) return cell;
+                const next = { chords:[...cell.chords], scales:[...cell.scales] };
+                if (type==='chord') next.chords.splice(from.index, 1); else next.scales.splice(from.index, 1);
+                return next;
+              });
+            });
+            const placed = removed.map((prow, rIdx) => {
+              if (rIdx !== to.row) return prow;
+              return prow.map((cell, cIdx) => {
+                if (cIdx !== to.col) return cell;
+                const next = { chords:[...cell.chords], scales:[...cell.scales] };
+                if (type==='chord') { next.chords.push({ x: to.x, text }); insertedIndex = next.chords.length - 1; }
+                else { next.scales.push({ x: to.x, text }); insertedIndex = next.scales.length - 1; }
+                return next;
+              });
+            });
+            return placed;
+          });
+          setSelection({ kind:'item', type, row: to.row, col: to.col, index: insertedIndex });
+          cleanup();
+          return { active:false, type:null, text:'', from:null, to:null, offsetX:0, startX:0, startY:0, moved:false };
+        });
+      }
+
+      useEffect(()=>{
+        const onKeyDown = (e)=>{
+          if (e.key === 'Delete' || e.key === 'Backspace') {
+            if (!selection) return;
+            if (selection.kind === 'item') {
+              e.preventDefault();
+              deleteItem(selection);
+            } else if (selection.kind === 'measure') {
+              if (e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+                deleteMeasure(selection.row, selection.col);
+              } else if (e.shiftKey) {
+                e.preventDefault();
+                clearMeasure(selection.row, selection.col);
+              } else {
+                e.preventDefault();
+              }
+            }
+          } else if (e.key === 'Escape') {
+            setSelection(null);
+          }
+        };
+        window.addEventListener('keydown', onKeyDown);
+        return ()=>window.removeEventListener('keydown', onKeyDown);
+      }, [selection]);
+
+      useEffect(()=>{
+        window.__getRows = () => rows;
+        window.__getPlacements = () => placements;
+        return () => { delete window.__getRows; delete window.__getPlacements; };
+      }, [rows, placements]);
+
+      function exportJson(){
+        const data = {
+          schema: "chord-sheet.v1",
+          title: titleText || "",
+          scoreKey: scoreKey || "",
+          rows: window.__getRows?.() || [[1]],
+          placements: window.__getPlacements?.() || [[{ chords:[], scales:[] }]],
+          savedAt: new Date().toISOString()
+        };
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = (titleText && titleText.trim()) ? `${titleText}.json` : "score.json";
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+
+      function importJsonFromFile(file){
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          try {
+            const parsed = JSON.parse(String(reader.result || "{}"));
+            if (!parsed || typeof parsed !== "object") throw new Error("Invalid JSON");
+            if (!Array.isArray(parsed.rows) || !Array.isArray(parsed.placements)) {
+              throw new Error("rows / placements が見つかりません");
+            }
+            if (parsed.placements.length !== parsed.rows.length) {
+              throw new Error("rows と placements の行数が一致しません");
+            }
+            const fixedPlacements = parsed.placements.map((prow, i) => {
+              const cols = (Array.isArray(parsed.rows[i]) ? parsed.rows[i].length : 0) || 0;
+              const safeRow = Array.isArray(prow) ? prow.slice() : [];
+              while (safeRow.length < cols) safeRow.push({ chords:[], scales:[] });
+              if (safeRow.length > cols) safeRow.length = cols;
+              return safeRow.map(cell => ({
+                chords: Array.isArray(cell?.chords) ? cell.chords : [],
+                scales: Array.isArray(cell?.scales) ? cell.scales : []
+              }));
+            });
+            setRows(parsed.rows.map(r => Array.isArray(r) ? r.slice() : [1]));
+            setPlacements(fixedPlacements);
+            if (typeof parsed.title === "string") setTitleText(parsed.title);
+            if (typeof parsed.scoreKey === "string") setScoreKey(parsed.scoreKey);
+            setSelected({ row:0, col:0 });
+            setSelection({ kind:"measure", row:0, col:0 });
+          } catch (err){
+            alert("JSON読み込みに失敗しました: " + (err?.message || err));
+          }
+        };
+        reader.readAsText(file, "utf-8");
+      }
+
+      function onClickLoadJson(){ fileInputRef.current?.click(); }
+      function onFileInputChange(e){
+        const f = e.target.files?.[0];
+        importJsonFromFile(f);
+        e.target.value = "";
+      }
+
+      function startDragBetween(e, rowIdx, leftIndex){
+        e.preventDefault(); e.stopPropagation();
+        const startX = e.clientX; const startRow = rows[rowIdx].slice();
+        const totalFr = startRow.reduce((a,b)=>a+b,0) || 1; const pairTotal = startRow[leftIndex] + startRow[leftIndex+1];
+        const onMove = (ev) => {
+          const dxFr = pxToFr(rowIdx, ev.clientX - startX, totalFr);
+          let L = startRow[leftIndex] + dxFr; if (L < MIN_FR) L = MIN_FR; if (L > pairTotal - MIN_FR) L = pairTotal - MIN_FR;
+          const nextRow = startRow.slice(); nextRow[leftIndex] = L; nextRow[leftIndex+1] = pairTotal - L; setRows(prev => prev.map((r, ri) => (ri === rowIdx ? nextRow : r)));
+        };
+        const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+        window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp);
+      }
+
+      function startDragRightEdge(e, rowIdx, index){
+        e.preventDefault(); e.stopPropagation();
+        const startX = e.clientX; const startRow = rows[rowIdx].slice(); const totalBefore = startRow.reduce((a,b)=>a+b,0);
+        const onMove = (ev) => {
+          let W = startRow[index] + pxToFr(rowIdx, ev.clientX - startX, totalBefore); if (W < MIN_FR) W = MIN_FR;
+          const nextRow = startRow.slice(); nextRow[index] = W; const rest = nextRow.reduce((a,b)=>a+b,0); for (let i=0;i<nextRow.length;i++) nextRow[i] = nextRow[i] * totalBefore / rest; setRows(prev => prev.map((r, ri) => (ri === rowIdx ? nextRow : r)));
+        };
+        const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+        window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp);
+      }
+
+      return React.createElement('div', { className:'min-h-screen bg-slate-900 text-slate-100 flex' },
+        React.createElement('aside', { className:'w-1/4 border-r border-slate-700 bg-slate-800 p-4 space-y-6 no-print' },
+          React.createElement('h1', { className:'text-lg font-bold text-slate-100 mb-4 text-center' }, 'コード譜エディ太'),
+          React.createElement('section', { className:'bg-slate-800 border border-slate-700 rounded-2xl shadow-sm p-4 space-y-4' },
+            React.createElement('h2', { className:'text-sm font-medium text-slate-300' }, 'キー / スケール（リスト）'),
+            React.createElement('div', { className:'grid grid-cols-2 gap-3' },
+              React.createElement('label', { className:'text-xs text-slate-300' }, 'Key',
+                React.createElement('select', { value:keySel, onChange:e=>setKeySel(e.target.value), className:'mt-1 w-full border rounded-md px-2 py-1 text-sm bg-slate-900 border-slate-700' },
+                  ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"].map(k => React.createElement('option', { key:k, value:k }, k))
+                )
+              ),
+              React.createElement('label', { className:'text-xs text-slate-300' }, 'Scale',
+                React.createElement('select', { value:scaleSel, onChange:e=>setScaleSel(e.target.value), className:'mt-1 w-full border rounded-md px-2 py-1 text-sm bg-slate-900 border-slate-700' },
+                  Object.entries(SCALE_GROUPS).map(([group, list]) =>
+                    React.createElement('optgroup', { key: group, label: group },
+                      list.map(name => React.createElement('option', { key:name, value:name }, name))
+                    )
+                  )
+                )
+              )
+            )
+          ),
+          React.createElement('section', { className:'bg-slate-800 border border-slate-700 rounded-2xl shadow-sm p-4 space-y-3' },
+            React.createElement('h2', { className:'text-sm font-medium text-slate-300' }, 'コード作成（キー / コード本体 / テンション / ベース）'),
+            React.createElement('div', { className:'grid grid-cols-2 gap-3' },
+              React.createElement('label', { className:'text-xs text-slate-300' }, 'Key',
+                React.createElement('select', { value:chKey, onChange:e=>setChKey(e.target.value), className:'mt-1 w-full border rounded-md px-2 py-1 text-sm bg-slate-900 border-slate-700' },
+                  ROOTS.map(r => React.createElement('option', { key:r, value:r }, r))
+                )
+              ),
+              React.createElement('label', { className:'text-xs text-slate-300' }, 'コード本体',
+                React.createElement('select', { value:chBody, onChange:e=>setChBody(e.target.value), className:'mt-1 w-full border rounded-md px-2 py-1 text-sm bg-slate-900 border-slate-700' },
+                  BODIES.map(b => React.createElement('option', { key:b, value:b }, b))
+                )
+              ),
+              React.createElement('label', { className:'text-xs text-slate-300' }, 'テンション',
+                React.createElement('select', { value:chTension, onChange:e=>setChTension(e.target.value), className:'mt-1 w-full border rounded-md px-2 py-1 text-sm bg-slate-900 border-slate-700' },
+                  TENSIONS.map(t => React.createElement('option', { key:t||'(none)', value:t }, t || '(none)'))
+                )
+              ),
+              React.createElement('label', { className:'text-xs text-slate-300' }, 'ベース',
+                React.createElement('select', { value:chBass, onChange:e=>setChBass(e.target.value), className:'mt-1 w-full border rounded-md px-2 py-1 text-sm bg-slate-900 border-slate-700' },
+                  BASSES.map(b => React.createElement('option', { key:b||'(none)', value:b }, b || '(none)'))
+                )
+              )
+            ),
+            React.createElement('div', { className:'flex items-center gap-2' },
+              React.createElement('span', { className:'text-xs text-slate-300' }, '配置モード:'),
+              React.createElement('button', { onClick:()=>setPlaceTool('chord'), className:'px-2 py-1 rounded text-xs border border-slate-700 ' + (placeTool==='chord'?'bg-slate-200 text-slate-900':'bg-slate-900 text-slate-100') }, 'コード'),
+              React.createElement('button', { onClick:()=>setPlaceTool('scale'), className:'px-2 py-1 rounded text-xs border border-slate-700 ' + (placeTool==='scale'?'bg-emerald-600 text-white':'bg-slate-900 text-slate-100') }, 'スケール')
+            ),
+            React.createElement('div', { className:'flex flex-col items-start gap-1' },
+              React.createElement('span', { className:'chip', draggable:true,
+                onDragStart:(e)=>{ e.dataTransfer.setData('text/plain', (placeTool==='chord'?chordLabel():scaleLabel())); } },
+                (placeTool==='chord'?chordLabel():scaleLabel())
+              ),
+              React.createElement('span', { className:'text-[11px] text-slate-400' }, 'チップをドラッグして右の小節へドロップ')
+            )
+          )
+        ),
+        React.createElement('main', { className:'flex-1 min-w-0 p-6', ref: containerRef },
+          React.createElement('div', { className:'bg-slate-800 border border-slate-700 rounded-2xl shadow-sm p-4' },
+            React.createElement('div', { className:'mb-2 flex flex-wrap items-start justify-between gap-2' },
+              React.createElement('div', { className:'flex-1 min-w-[260px]' },
+                React.createElement('input', {
+                  ref: titleRef,
+                  type:'text',
+                  value: titleText,
+                  onChange:(e)=> setTitleText(e.target.value),
+                  placeholder:'タイトルを入力',
+                  className:'print-title border rounded px-2 py-1 text-lg font-semibold w-full bg-slate-900 border-slate-700 text-slate-100 placeholder-slate-500'
+                }),
+                React.createElement('div', { className:'print-sub mt-1 flex items-center gap-2' },
+                  React.createElement('label', { className:'text-xs text-slate-300' }, 'Key:'),
+                  React.createElement('input', {
+                    type:'text', value:scoreKey, onChange:(e)=>setScoreKey(e.target.value), placeholder:'例: C / G / Fm など',
+                    className:'border rounded px-2 py-1 text-sm w-56 sm:w-64 md:w-80 lg:w-[28rem] flex-shrink-0 bg-slate-900 border-slate-700 text-slate-100 placeholder-slate-500'
+                  })
+                )
+              ),
+              React.createElement('div', { className:'flex gap-2 items-start flex-shrink-0' },
+                React.createElement('button', { onClick:()=>{ if(selected){ addMeasureHorizontal(selected.row, selected.col); } }, disabled:!selected || (selected && rows[selected.row].length>=4), className:'px-2 py-1 rounded bg-green-600 text-white text-xs disabled:opacity-40' }, '+ 横に追加'),
+                React.createElement('button', { onClick:()=>{ if(selected){ addMeasureVertical(selected.row); } }, disabled:!selected, className:'px-2 py-1 rounded bg-blue-600 text-white text-xs disabled:opacity-40' }, '+ 下に追加'),
+                React.createElement('button', {
+                  onClick:()=>{ if (!selection) return; if (selection.kind==="item") deleteItem(selection); },
+                  disabled:!selection || selection.kind!=='item',
+                  className:'px-2 py-1 rounded bg-red-600 text-white text-xs disabled:opacity-40',
+                  title:'選択中のコード/スケール（1個）だけを削除（DeleteでもOK）'
+                }, '描画削除(shift+delで小節内全削除)'),
+                React.createElement('button', {
+                  onClick:()=>{ if (!selection) return; if (selection.kind==="measure") deleteMeasure(selection.row, selection.col); },
+                  disabled:!selection || selection.kind!=='measure',
+                  className:'px-2 py-1 rounded bg-rose-600 text-white text-xs disabled:opacity-40',
+                  title:'小節そのものを削除（ショートカット: Ctrl/Cmd + Delete）'
+                }, '小節削除（Ctrl + Delete）'),
+                React.createElement('button', { onClick:exportPdf, className:'px-3 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-xs' }, 'PDF書き出し（小節番号付き）'),
+                React.createElement('button', { onClick:exportJson, className:'px-3 py-1.5 rounded bg-amber-600 hover:bg-amber-500 text-white text-xs' }, 'JSON保存'),
+                React.createElement('button', { onClick:onClickLoadJson, className:'px-3 py-1.5 rounded bg-slate-600 hover:bg-slate-500 text-white text-xs' }, 'JSON読み込み'),
+                React.createElement('input', { ref:fileInputRef, type:'file', accept:'application/json', onChange:onFileInputChange, style:{ display:'none' } })
+              )
+            ),
+            React.createElement('div', { className:'space-y-3' },
+              rows.map((row, rowIdx) => {
+                const total = row.reduce((a,b)=>a+b,0) || 1;
+                return React.createElement('div', { key:rowIdx, ref:el=>rowsRef.current[rowIdx]=el, className:'relative flex gap-0 items-stretch overflow-hidden rounded-xl border border-slate-700' },
+                  row.map((fr, i) => {
+                    const cell = (placements[rowIdx] && placements[rowIdx][i]) || { chords: [], scales: [] };
+                    if (!measureRefs.current[rowIdx]) measureRefs.current[rowIdx] = [];
+                    return React.createElement(MeasureBox, {
+                      key:i,
+                      rowIdx, index:i, fr, totalFr:total,
+                      isLast: i === row.length - 1,
+                      selected: selected && selected.row === rowIdx && selected.col === i,
+                      selection: selection,
+                      onSelect: () => { setSelected({row: rowIdx, col: i}); setSelection({kind:'measure', row:rowIdx, col:i}); },
+                      onDragBetween: (e) => { if (i < row.length - 1) startDragBetween(e, rowIdx, i); },
+                      onDragRight: (e) => { if (i === row.length - 1) startDragRightEdge(e, rowIdx, i); },
+                      cell: cell,
+                      onDropPlace: (x, labelFromDrop) => dropPlace(rowIdx, i, x, labelFromDrop),
+                      measureRef: (el)=>{ measureRefs.current[rowIdx][i] = el; },
+                      onItemMouseDown: onItemMouseDownFactory(rowIdx, i),
+                      dragPreview: dragState.active ? { ...dragState, row: dragState.to?.row, col: dragState.to?.col, x: dragState.to?.x } : null
+                    });
+                  })
+                );
+              })
+            )
+          )
+        )
+      );
+    }
+
+    function exportPdf(){
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ unit:'mm', format:'a4', orientation:'portrait' });
+
+      const pageW = doc.internal.pageSize.getWidth();
+      const pageH = doc.internal.pageSize.getHeight();
+      const margin = { top:18, right:15, bottom:18, left:15 };
+      const contentW = pageW - margin.left - margin.right;
+
+      const titleText = (document.querySelector('.print-title')?.value ?? document.querySelector('.print-title')?.textContent)?.trim() || '';
+      const scoreKey  = document.querySelector('input[placeholder="例: C / G / Fm など"]')?.value || '';
+
+      const rowsState       = window.__getRows?.() || [[1]];
+      const placementsState = window.__getPlacements?.() || [[{chords:[],scales:[]}]];
+
+      function mmToPx(mm, dpi=192){ return Math.round(mm * dpi / 25.4); }
+      function drawPage(rows, placements){
+        const dpi = 192;
+        const Wpx = mmToPx(pageW, dpi);
+        const Hpx = mmToPx(pageH, dpi);
+        const canvas = document.createElement('canvas');
+        canvas.width = Wpx; canvas.height = Hpx;
+        const ctx = canvas.getContext('2d');
+
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0,0,Wpx,Hpx);
+        ctx.fillStyle = '#000000';
+        ctx.strokeStyle = '#000000';
+        ctx.imageSmoothingEnabled = false;
+        ctx.textBaseline = 'alphabetic';
+
+        const mmX = (mm)=> Math.round(mm * dpi / 25.4);
+        const mmY = (mm)=> Math.round(mm * dpi / 25.4);
+
+        let cursorY = margin.top;
+        if (titleText){ ctx.font = `${mmToPx(14, dpi)/3}px "Noto Sans JP", system-ui, Arial`; ctx.fillText(titleText, mmX(margin.left), mmY(cursorY)); cursorY += 8; }
+        if (scoreKey){ ctx.font = `${mmToPx(10, dpi)/3}px "Noto Sans JP", system-ui, Arial`; ctx.fillText(`Key: ${scoreKey}`, mmX(margin.left), mmY(cursorY)); cursorY += 10; } else { cursorY += 4; }
+
+        const staffH = 12; const staffGap = staffH/4; const topOffsets = { chord:-5, staff:0, scale: staffH + 5 };
+        const systemInnerH = staffH + 12; const systemSpacing = 6;
+        const line = (x1,y1,x2,y2,w=0.1)=>{ ctx.lineWidth = mmToPx(w, dpi/1.5); ctx.beginPath(); ctx.moveTo(mmX(x1),mmY(y1)); ctx.lineTo(mmX(x2),mmY(y2)); ctx.stroke(); };
+
+        function textAt(txt,x,y,align='left',bold=false,size=10,maxWmm=null){
+          ctx.textAlign = (align==='center'?'center':align==='right'?'right':'left');
+          const fontBase = Math.max(10, Math.floor(mmToPx(size,dpi)/3));
+          ctx.font = `${bold?'700':'400'} ${fontBase}px "Noto Sans JP", system-ui, Arial`;
+          if (maxWmm){
+            let px = ctx.measureText(txt).width, maxPx = mmToPx(maxWmm, dpi);
+            let scale = 1.0;
+            while (px > maxPx && scale > 0.8){ scale -= 0.05; ctx.font = `${bold?'700':'400'} ${Math.floor(fontBase*scale)}px "Noto Sans JP", system-ui, Arial`; px = ctx.measureText(txt).width; }
+          }
+          ctx.fillText(txt, mmX(x), mmY(y));
+        }
+
+        let measureNo = 1; let drawn = 0;
+        for (let r = 0; r < rows.length; r++){
+          const row = rows[r]; const frSum = row.reduce((a,b)=>a+b,0) || 1;
+          const needH = systemInnerH + systemSpacing;
+          if (cursorY + needH > (pageH - margin.bottom)) break;
+
+          const staffTop = cursorY + topOffsets.staff;
+          for (let i=0;i<5;i++){ const y = staffTop + i*staffGap; line(margin.left, y, margin.left + contentW, y, 0.35); }
+          line(margin.left, staffTop, margin.left, staffTop + staffH, 0.5);
+          line(margin.left + contentW, staffTop, margin.left + contentW, staffTop + staffH, 0.5);
+
+          let xCursor = margin.left;
+          for (let c=0; c<row.length; c++){
+            const fr = row[c]; const w = contentW * (fr / frSum);
+            if (c>0){ line(xCursor, staffTop, xCursor, staffTop + staffH, 0.35); }
+            const noY = staffTop - 2.5; textAt(String(measureNo), xCursor + 2, noY, 'left', false, 8);
+            const cell = (placements[r] && placements[r][c]) || { chords:[], scales:[] };
+            (cell.chords||[]).forEach(ch=>{ const cx = xCursor + (ch.x * w); const y = staffTop + topOffsets.chord; textAt(ch.text, cx, y, 'center', true, 11, Math.min(w - 3, 30)); });
+            (cell.scales||[]).forEach(sc=>{ const sx = xCursor + (sc.x * w); const y = staffTop + topOffsets.scale; textAt(sc.text, sx, y, 'center', false, 9); });
+            xCursor += w; measureNo += 1;
+          }
+          cursorY += systemInnerH + systemSpacing; drawn++;
+        }
+        return { canvas, drawnCount: drawn };
+      }
+
+      let start = 0;
+      while (start < rowsState.length){
+        const { canvas, drawnCount } = drawPage(rowsState.slice(start), placementsState.slice(start));
+        const img = canvas.toDataURL('image/png');
+        doc.addImage(img, 'PNG', 0, 0, pageW, pageH);
+        start += drawnCount;
+        if (start < rowsState.length) doc.addPage();
+      }
+
+      const filename = (titleText && titleText.trim()) ? `${titleText}.pdf` : 'score.pdf';
+      doc.save(filename);
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(React.createElement(App, null));
+  </script>
+</body>
+</html>
