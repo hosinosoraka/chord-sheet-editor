@@ -3,7 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>コード譜エディ太 V1.0.0</title>
+  <title>コード譜エディ太</title>
+
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     :root{ --staff-stroke:#3b475a; --staff-edge:#55637a; }
@@ -201,6 +202,8 @@
       );
     }
 
+const APP_VERSION = "V1.0.1";
+
     function App(){
       const containerRef = useRef(null);
       const rowsRef = useRef([]);
@@ -213,8 +216,7 @@
       const [scoreKey, setScoreKey] = useState('');
       const titleRef = useRef(null);
 
-      useEffect(()=>{ document.title = 'コード譜エディ太'; }, []);
-
+useEffect(()=>{ document.title = `コード譜エディ太`; }, []);
       const [selection, setSelection] = useState(null);
 
       const [keySel, setKeySel] = useState('C');
@@ -609,8 +611,10 @@
       return React.createElement('div', { className:'min-h-screen bg-slate-900 text-slate-100 flex' },
         
         React.createElement('aside', { className:'w-1/4 border-r border-slate-700 bg-slate-800 p-4 space-y-6 no-print' },
-          React.createElement('h1', { className:'text-lg font-bold text-slate-100 mb-4 text-center' }, 'コード譜エディ太'),
-          React.createElement('section', { className:'bg-slate-800 border border-slate-700 rounded-2xl shadow-sm p-4 space-y-4' },
+React.createElement('div', { className:'flex flex-col items-center mb-4' },
+  React.createElement('h1', { className:'text-lg font-bold text-slate-100 mb-1' }, 'コード譜エディ太'),
+  React.createElement('div', { className:'text-sm text-slate-400' }, APP_VERSION)
+),          React.createElement('section', { className:'bg-slate-800 border border-slate-700 rounded-2xl shadow-sm p-4 space-y-4' },
             React.createElement('h2', { className:'text-sm font-medium text-slate-300' }, 'キー / スケール（リスト）'),
             React.createElement('div', { className:'grid grid-cols-2 gap-3' },
               React.createElement('label', { className:'text-xs text-slate-300' }, 'Key',
