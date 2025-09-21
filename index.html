@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>コード譜エディ太</title>
+  <title>コード譜エディ太 V1.0.0</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     :root{ --staff-stroke:#3b475a; --staff-edge:#55637a; }
@@ -14,12 +14,14 @@
     .item-pill{ position:absolute;transform:translate(-50%,-50%);padding:2px 6px;font-size:11px;border-radius:6px;border:1px solid #cbd5e1;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.08) }
     .dark .item-pill{ background:#0b1220;border-color:#334155;color:#e5e7eb;box-shadow:0 1px 2px rgba(0,0,0,.4) }
     .item-pill.scale{ background:#059669;color:#fff;border-color:transparent;transform:translate(-50%, -40%) }
-    .dark .item-pill.scale{ background:#047857;color:#e2e8f0;border-color:transparent }
+    .dark .item-pill.scale{ background:#059669;color:#fff;border-color:transparent;transform:translate(-50%, -40%) }
+    .item-pill.text{ background:#111827; color:#e5e7eb; border-color:#374151; }
     .item-pill.selected{ outline:2px solid #3b82f6; outline-offset:1px; box-shadow:0 0 0 3px rgba(59,130,246,.25) }
     .item-ghost{ position:absolute;transform:translate(-50%,-50%);padding:2px 6px;font-size:11px;border-radius:6px;border:1px dashed #64748b;background:#f8fafc; z-index:50; opacity:.9 }
     .dark .item-ghost{ border-color:#94a3b8;background:#0f172a;color:#e2e8f0 }
     .drag-guide{ position:absolute; top:0; bottom:0; width:1px; background:#60a5fa; opacity:.85; }
     .no-select{ user-select:none;-webkit-user-select:none }
+    /* placeholder for empty contenteditable */
     [contenteditable][data-placeholder]:empty:before{ content: attr(data-placeholder); color: #94a3b8; }
     @media print{
       .print-title{ font-size: 20pt !important; font-weight: 700 !important; margin-bottom: 6pt !important; }
@@ -44,7 +46,6 @@
     const TENSIONS = ["", "b9","9","#9","11","#11","b13","13"];
 
     const SCALE_GROUPS = {
-      "Utility": ["Chromatic Scale (All Notes)"],
       "Major (Diatonic Modes)": ["Major (Ionian)", "Dorian", "Phrygian", "Lydian", "Mixolydian", "Natural Minor (Aeolian)", "Locrian"],
       "Melodic Minor Modes": ["Melodic Minor","Dorian b2","Lydian #5 (Lydian Augmented)","Lydian b7 (Lydian Dominant)","Mixolydian b6","Aeolian b5","Altered Scale (Super Locrian)"],
       "Harmonic Minor Modes": ["Harmonic Minor","Locrian natural 6","Ionian #5","Dorian #4","Mixolydian b9 b13 (HP5)","Lydian #2","Altered Dominant bb7 (Super Locrian)"],
@@ -73,18 +74,32 @@
         rowIdx, index, fr, totalFr, isLast, selected, onSelect,
         onDragBetween, onDragRight, cell, onDropPlace,
         measureRef,
-        selection, onItemMouseDown, dragPreview
+        selection, onItemMouseDown, dragPreview,
+        onStartEditText, isEditingText, onEditTextInput, onEditTextBlur, onTextKeyDown
       } = props;
 
       const FIXED_H = 60, EXTRA = 40;
       const style = { width: ((fr/totalFr)*100) + '%', minWidth: '120px', height: (FIXED_H + EXTRA) + 'px' };
 
+      const parseDragPayload = (e) => {
+        try {
+          const j = e.dataTransfer.getData('application/json');
+          if (j) {
+            const o = JSON.parse(j);
+            if (o && (o.type==='chord' || o.type==='scale' || o.type==='text') && typeof o.text==='string') return o;
+          }
+        } catch {}
+        const txt = e.dataTransfer.getData('text/plain');
+        if (txt) return { type:'chord', text: txt }; // フォールバック（未指定はコード扱い）
+        return null;
+      };
+
       const onDrop = (e) => {
         e.preventDefault();
         const rect = e.currentTarget.getBoundingClientRect();
         const x = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-        const label = e.dataTransfer.getData('text/plain');
-        if (label) onDropPlace(x, label);
+        const payload = parseDragPayload(e);
+        if (payload) onDropPlace(x, payload);
       };
 
       const selIsThisMeasure = selection && selection.kind==='measure' && selection.row===rowIdx && selection.col===index;
@@ -97,7 +112,9 @@
         className: 'relative flex-shrink-0 group cursor-pointer ' + ((selected||selIsThisMeasure) ? 'ring-2 ring-blue-500' : ''),
         style
       },
-        React.createElement('div', { className:'absolute left-0 right-0', style:{ top:'34px' } }, React.createElement(StaffSVG,null)),
+        React.createElement('div', { className:'absolute left-0 right-0', style:{ top:'35px' } }, React.createElement(StaffSVG,null)),
+
+        /* コード（上） */
         React.createElement('div', { className:'absolute left-0 right-0', style:{ top:'20px' } },
           (cell.chords||[]).map((c, idx) => {
             const isSelected = selection && selection.kind==='item' && selection.type==='chord' && selection.row===rowIdx && selection.col===index && selection.index===idx;
@@ -112,6 +129,32 @@
             }, c.text);
           })
         ),
+
+        /* テキスト（中間） */
+        React.createElement('div', { className:'absolute left-0 right-0', style:{ top:(FIXED_H/2+20)+'px' } },
+          (cell.texts||[]).map((t, idx) => {
+            const isSelected = selection && selection.kind==='item' && selection.type==='text' && selection.row===rowIdx && selection.col===index && selection.index===idx;
+            const editing = isEditingText && isEditingText.row===rowIdx && isEditingText.col===index && isEditingText.index===idx;
+            return React.createElement('span', {
+                key:idx,
+                className:'item-pill text ' + (isSelected ? 'selected ' : ''),
+                style:{ left:(t.x*100)+'%', minWidth:'28px' },
+                onMouseDown:(e)=>{ if (!editing){ e.stopPropagation(); onItemMouseDown('text', idx, e); } },
+                onDoubleClick:(e)=>{ e.stopPropagation(); onStartEditText(rowIdx, index, idx); },
+                onClick:(e)=>{ e.stopPropagation(); },
+                draggable:false,
+                onDragStart:(e)=>e.preventDefault(),
+                contentEditable: editing ? true : false,
+                suppressContentEditableWarning: true,
+                onInput:(e)=> onEditTextInput(rowIdx, index, idx, e.currentTarget.textContent || ''),
+                onBlur:(e)=> onEditTextBlur(),
+                onKeyDown:(e)=> onTextKeyDown(e),
+                'data-placeholder':'Text'
+            }, t.text);
+          })
+        ),
+
+        /* スケール（下） */
         React.createElement('div', { className:'absolute left-0 right-0', style:{ top:(FIXED_H+20)+'px' } },
           (cell.scales||[]).map((s, idx) => {
             const isSelected = selection && selection.kind==='item' && selection.type==='scale' && selection.row===rowIdx && selection.col===index && selection.index===idx;
@@ -126,13 +169,15 @@
             }, s.text);
           })
         ),
+
         (dragPreview && dragPreview.active && dragPreview.row===rowIdx && dragPreview.col===index) && React.createElement('div', {
           className:'absolute left-0 right-0 pointer-events-none',
-          style:{ top: dragPreview.type==='chord' ? '20px' : (FIXED_H+6)+'px' }
+          style:{ top: dragPreview.type==='chord' ? '20px' : dragPreview.type==='scale' ? (FIXED_H+6)+'px' : (FIXED_H/2 - 6)+'px' }
         },
           React.createElement('div', { className:'drag-guide', style:{ left:(dragPreview.x*100)+'%' } }),
-          React.createElement('span', { className: 'item-ghost ' + (dragPreview.type==='scale'?'scale':''), style:{ left:(dragPreview.x*100)+'%' } }, dragPreview.text)
+          React.createElement('span', { className: 'item-ghost ' + (dragPreview.type==='scale'?'scale':'') + (dragPreview.type==='text'?' text':''), style:{ left:(dragPreview.x*100)+'%' } }, dragPreview.text)
         ),
+
         (!isLast && React.createElement('div', { onMouseDown:onDragBetween, className:'absolute top-0 right-0 h-full w-2 cursor-col-resize bg-transparent z-10' },
           React.createElement('div', { className:'absolute inset-y-4 right-0 w-px bg-slate-600/70' })
         )),
@@ -165,9 +210,9 @@
       const [chTension, setChTension] = useState('');
       const [chBass, setChBass] = useState('');
 
-      const [placeTool, setPlaceTool] = useState('chord');
+      const [placements, setPlacements] = useState([[ { chords: [], texts: [], scales: [] } ]]);
 
-      const [placements, setPlacements] = useState([[ { chords: [], scales: [] } ]]);
+      const [editingText, setEditingText] = useState(null); // {row,col,index}
 
       const fileInputRef = useRef(null);
 
@@ -187,8 +232,6 @@
       };
       const scaleLabel = () => keySel + ' ' + scaleSel;
 
-      useEffect(()=>{}, [placeTool, chKey, chBody, chTension, chBass, keySel, scaleSel]);
-
       const pxToFr = (rowIdx, px, totalFr) => {
         const w = (rowsRef.current[rowIdx] && rowsRef.current[rowIdx].clientWidth) || (containerRef.current && containerRef.current.clientWidth) || 1;
         return (px / w) * totalFr;
@@ -204,8 +247,8 @@
         }));
         setPlacements(prev => prev.map((prow, pri) => {
           if (pri !== rowIdx) return prow;
-          const next = prow.map(c => ({ chords:[...c.chords], scales:[...c.scales] }));
-          next.splice(index + 1, 0, { chords: [], scales: [] });
+          const next = prow.map(c => ({ chords:[...c.chords], texts:[...c.texts], scales:[...c.scales] }));
+          next.splice(index + 1, 0, { chords: [], texts: [], scales: [] });
           return next;
         }));
         setSelected({ row: rowIdx, col: index + 1 });
@@ -214,7 +257,7 @@
 
       const addMeasureVertical = (rowIdx) => {
         setRows(prev => { const copy = prev.slice(); copy.splice(rowIdx + 1, 0, [1]); return copy; });
-        setPlacements(prev => { const copy = prev.map(row => row.map(c => ({ chords:[...c.chords], scales:[...c.scales] }))); copy.splice(rowIdx + 1, 0, [ { chords: [], scales: [] } ]); return copy; });
+        setPlacements(prev => { const copy = prev.map(row => row.map(c => ({ chords:[...c.chords], texts:[...c.texts], scales:[...c.scales] }))); copy.splice(rowIdx + 1, 0, [ { chords: [], texts: [], scales: [] } ]); return copy; });
         setSelected({ row: rowIdx + 1, col: 0 });
         setSelection({ kind:'measure', row: rowIdx + 1, col: 0 });
       };
@@ -224,9 +267,10 @@
           if (rIdx !== sel.row) return prow;
           return prow.map((cell, cIdx) => {
             if (cIdx !== sel.col) return cell;
-            const next = { chords:[...cell.chords], scales:[...cell.scales] };
+            const next = { chords:[...cell.chords], texts:[...cell.texts], scales:[...cell.scales] };
             if (sel.type==='chord') next.chords.splice(sel.index,1);
-            else next.scales.splice(sel.index,1);
+            else if (sel.type==='scale') next.scales.splice(sel.index,1);
+            else next.texts.splice(sel.index,1);
             return next;
           });
         }));
@@ -236,7 +280,7 @@
       const clearMeasure = (rowIdx, colIdx)=>{
         setPlacements(prev => prev.map((prow, rIdx) => {
           if (rIdx !== rowIdx) return prow;
-          return prow.map((cell, cIdx) => (cIdx===colIdx ? { chords:[], scales:[] } : cell));
+          return prow.map((cell, cIdx) => (cIdx===colIdx ? { chords:[], texts:[], scales:[] } : cell));
         }));
         setSelection(null);
       };
@@ -256,7 +300,7 @@
           return copy;
         });
         setPlacements(prev => {
-          const copy = prev.map(row => row.map(c => ({ chords:[...c.chords], scales:[...c.scales] })));
+          const copy = prev.map(row => row.map(c => ({ chords:[...c.chords], texts:[...c.texts], scales:[...c.scales] })));
           if (!copy[rowIdx]) return prev;
           copy[rowIdx].splice(colIdx, 1);
           if (copy[rowIdx].length === 0) copy.splice(rowIdx, 1);
@@ -266,19 +310,20 @@
         setSelected(null);
       }
 
-      const dropPlace = (rowIdx, colIdx, x, labelFromDrop) => {
-        const text = labelFromDrop || (placeTool==='chord' ? chordLabel() : scaleLabel());
-        const type = (placeTool==='chord') ? 'chord' : 'scale';
+      const dropPlace = (rowIdx, colIdx, x, payload) => {
+        let type = (payload && (payload.type==='scale' || payload.type==='chord' || payload.type==='text')) ? payload.type : 'chord';
+        let text = (payload && typeof payload.text==='string') ? payload.text : (type==='chord' ? chordLabel() : type==='scale' ? scaleLabel() : 'Text');
         placeNewItem(type, rowIdx, colIdx, x, text);
       };
 
       function placeNewItem(type, rowIdx, colIdx, x, text){
         setPlacements(prev => prev.map((prow, rIdx) => {
           if (rIdx !== rowIdx) return prow;
-          const nextRow = prow.map(c => ({ chords:[...c.chords], scales:[...c.scales] }));
-          const target = nextRow[colIdx] || { chords: [], scales: [] };
+          const nextRow = prow.map(c => ({ chords:[...c.chords], texts:[...c.texts], scales:[...c.scales] }));
+          const target = nextRow[colIdx] || { chords: [], texts: [], scales: [] };
           if (type === 'chord') target.chords.push({ x, text });
-          else target.scales.push({ x, text });
+          else if (type === 'scale') target.scales.push({ x, text });
+          else target.texts.push({ x, text });
           nextRow[colIdx] = target;
           return nextRow;
         }));
@@ -287,14 +332,16 @@
       function onItemMouseDownFactory(rowIdx, colIdx){
         return (type, itemIndex, e) => {
           e.preventDefault();
+          setEditingText(null); // ドラッグ開始時は編集解除
           setSelection({ kind:'item', type, row:rowIdx, col:colIdx, index:itemIndex });
 
           const ref = measureRefs.current[rowIdx]?.[colIdx];
           if (!ref) return;
           const rect = ref.getBoundingClientRect();
 
-          const cell = (placements[rowIdx] && placements[rowIdx][colIdx]) || { chords:[], scales:[] };
-          const src = (type==='chord' ? cell.chords[itemIndex] : cell.scales[itemIndex]);
+          const cell = (placements[rowIdx] && placements[rowIdx][colIdx]) || { chords:[], texts:[], scales:[] };
+          const list = type==='chord' ? cell.chords : (type==='scale' ? cell.scales : cell.texts);
+          const src = list[itemIndex];
           if (!src) return;
 
           const xInMeasure = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
@@ -369,8 +416,10 @@
               if (rIdx !== from.row) return prow;
               return prow.map((cell, cIdx) => {
                 if (cIdx !== from.col) return cell;
-                const next = { chords:[...cell.chords], scales:[...cell.scales] };
-                if (type==='chord') next.chords.splice(from.index, 1); else next.scales.splice(from.index, 1);
+                const next = { chords:[...cell.chords], texts:[...cell.texts], scales:[...cell.scales] };
+                if (type==='chord') next.chords.splice(from.index, 1);
+                else if (type==='scale') next.scales.splice(from.index, 1);
+                else next.texts.splice(from.index, 1);
                 return next;
               });
             });
@@ -378,9 +427,10 @@
               if (rIdx !== to.row) return prow;
               return prow.map((cell, cIdx) => {
                 if (cIdx !== to.col) return cell;
-                const next = { chords:[...cell.chords], scales:[...cell.scales] };
+                const next = { chords:[...cell.chords], texts:[...cell.texts], scales:[...cell.scales] };
                 if (type==='chord') { next.chords.push({ x: to.x, text }); insertedIndex = next.chords.length - 1; }
-                else { next.scales.push({ x: to.x, text }); insertedIndex = next.scales.length - 1; }
+                else if (type==='scale') { next.scales.push({ x: to.x, text }); insertedIndex = next.scales.length - 1; }
+                else { next.texts.push({ x: to.x, text }); insertedIndex = next.texts.length - 1; }
                 return next;
               });
             });
@@ -390,6 +440,29 @@
           cleanup();
           return { active:false, type:null, text:'', from:null, to:null, offsetX:0, startX:0, startY:0, moved:false };
         });
+      }
+
+      // テキスト編集ハンドラ
+      function onStartEditText(row, col, index){
+        setEditingText({ row, col, index });
+        setSelection({ kind:'item', type:'text', row, col, index });
+      }
+      function onEditTextInput(row, col, index, value){
+        setPlacements(prev => prev.map((prow, rIdx) => {
+          if (rIdx !== row) return prow;
+          return prow.map((cell, cIdx) => {
+            if (cIdx !== col) return cell;
+            const next = { chords:[...cell.chords], texts:cell.texts.map((t,i)=> i===index? ({...t, text:value}) : t), scales:[...cell.scales] };
+            return next;
+          });
+        }));
+      }
+      function onEditTextBlur(){
+        setEditingText(null);
+      }
+      function onTextKeyDown(e){
+        if (e.key === 'Enter'){ e.preventDefault(); e.currentTarget.blur(); }
+        else if (e.key === 'Escape'){ e.preventDefault(); e.currentTarget.blur(); }
       }
 
       useEffect(()=>{
@@ -411,6 +484,7 @@
               }
             }
           } else if (e.key === 'Escape') {
+            setEditingText(null);
             setSelection(null);
           }
         };
@@ -430,7 +504,7 @@
           title: titleText || "",
           scoreKey: scoreKey || "",
           rows: window.__getRows?.() || [[1]],
-          placements: window.__getPlacements?.() || [[{ chords:[], scales:[] }]],
+          placements: window.__getPlacements?.() || [[{ chords:[], texts:[], scales:[] }]],
           savedAt: new Date().toISOString()
         };
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
@@ -458,10 +532,11 @@
             const fixedPlacements = parsed.placements.map((prow, i) => {
               const cols = (Array.isArray(parsed.rows[i]) ? parsed.rows[i].length : 0) || 0;
               const safeRow = Array.isArray(prow) ? prow.slice() : [];
-              while (safeRow.length < cols) safeRow.push({ chords:[], scales:[] });
+              while (safeRow.length < cols) safeRow.push({ chords:[], texts:[], scales:[] });
               if (safeRow.length > cols) safeRow.length = cols;
               return safeRow.map(cell => ({
                 chords: Array.isArray(cell?.chords) ? cell.chords : [],
+                texts:  Array.isArray(cell?.texts)  ? cell.texts  : [],
                 scales: Array.isArray(cell?.scales) ? cell.scales : []
               }));
             });
@@ -510,6 +585,7 @@
       }
 
       return React.createElement('div', { className:'min-h-screen bg-slate-900 text-slate-100 flex' },
+        
         React.createElement('aside', { className:'w-1/4 border-r border-slate-700 bg-slate-800 p-4 space-y-6 no-print' },
           React.createElement('h1', { className:'text-lg font-bold text-slate-100 mb-4 text-center' }, 'コード譜エディ太'),
           React.createElement('section', { className:'bg-slate-800 border border-slate-700 rounded-2xl shadow-sm p-4 space-y-4' },
@@ -529,6 +605,13 @@
                   )
                 )
               )
+            ),
+            React.createElement('div', { className:'flex flex-col items-start gap-1' },
+              React.createElement('span', { className:'chip', draggable:true,
+                onDragStart:(e)=>{ const payload={ type:'scale', text: keySel + ' ' + scaleSel }; e.dataTransfer.setData('application/json', JSON.stringify(payload)); e.dataTransfer.setData('text/plain', payload.text); } },
+                keySel + ' ' + scaleSel
+              ),
+              React.createElement('span', { className:'text-[11px] text-slate-400' }, 'スケールを小節へドラッグ')
             )
           ),
           React.createElement('section', { className:'bg-slate-800 border border-slate-700 rounded-2xl shadow-sm p-4 space-y-3' },
@@ -555,21 +638,34 @@
                 )
               )
             ),
-            React.createElement('div', { className:'flex items-center gap-2' },
-              React.createElement('span', { className:'text-xs text-slate-300' }, '配置モード:'),
-              React.createElement('button', { onClick:()=>setPlaceTool('chord'), className:'px-2 py-1 rounded text-xs border border-slate-700 ' + (placeTool==='chord'?'bg-slate-200 text-slate-900':'bg-slate-900 text-slate-100') }, 'コード'),
-              React.createElement('button', { onClick:()=>setPlaceTool('scale'), className:'px-2 py-1 rounded text-xs border border-slate-700 ' + (placeTool==='scale'?'bg-emerald-600 text-white':'bg-slate-900 text-slate-100') }, 'スケール')
-            ),
             React.createElement('div', { className:'flex flex-col items-start gap-1' },
               React.createElement('span', { className:'chip', draggable:true,
-                onDragStart:(e)=>{ e.dataTransfer.setData('text/plain', (placeTool==='chord'?chordLabel():scaleLabel())); } },
-                (placeTool==='chord'?chordLabel():scaleLabel())
+                onDragStart:(e)=>{ const q=(chBody==='maj')?'':chBody; const t=chTension?('('+chTension+')'):''; const b=chBass?('/'+chBass):''; const payload={ type:'chord', text: chKey + q + t + b }; e.dataTransfer.setData('application/json', JSON.stringify(payload)); e.dataTransfer.setData('text/plain', payload.text); } },
+                (function(){ const q=(chBody==='maj')?'':chBody; const t=chTension?('('+chTension+')'):''; const b=chBass?('/'+chBass):''; return chKey + q + t + b; })()
               ),
-              React.createElement('span', { className:'text-[11px] text-slate-400' }, 'チップをドラッグして右の小節へドロップ')
+              React.createElement('span', { className:'text-[11px] text-slate-400' }, 'コードを小節へドラッグ')
             )
+          ),
+          React.createElement('section', { className:'bg-slate-800 border border-slate-700 rounded-2xl shadow-sm p-4 space-y-3' },
+            React.createElement('h2', { className:'text-sm font-medium text-slate-300' }, 'テキスト'),
+            React.createElement('div', { className:'flex flex-col items-start gap-1' },
+              React.createElement('span', { className:'chip', draggable:true,
+                onDragStart:(e)=>{ const payload={ type:'text', text:'Text' }; e.dataTransfer.setData('application/json', JSON.stringify(payload)); e.dataTransfer.setData('text/plain', payload.text); } },
+                'Text'
+              ),
+              React.createElement('span', { className:'text-[11px] text-slate-400' }, 'テキストのチップを小節へドラッグ（ダブルクリックで編集）')
+            )
+          ),
+          React.createElement('div', { className:'text-center mt-3' },
+            React.createElement('a', {
+              href:'https://github.com/hosinosoraka/chord-sheet-editor/blob/main/README.md',
+              target:'_blank',
+              rel:'noopener noreferrer',
+              className:'inline-block text-xs text-blue-400 hover:underline'
+            }, '📖 ReadMe')
           )
         ),
-        React.createElement('main', { className:'flex-1 min-w-0 p-6', ref: containerRef },
+React.createElement('main', { className:'flex-1 min-w-0 p-6', ref: containerRef },
           React.createElement('div', { className:'bg-slate-800 border border-slate-700 rounded-2xl shadow-sm p-4' },
             React.createElement('div', { className:'mb-2 flex flex-wrap items-start justify-between gap-2' },
               React.createElement('div', { className:'flex-1 min-w-[260px]' },
@@ -596,7 +692,7 @@
                   onClick:()=>{ if (!selection) return; if (selection.kind==="item") deleteItem(selection); },
                   disabled:!selection || selection.kind!=='item',
                   className:'px-2 py-1 rounded bg-red-600 text-white text-xs disabled:opacity-40',
-                  title:'選択中のコード/スケール（1個）だけを削除（DeleteでもOK）'
+                  title:'選択中のコード/スケール/テキスト（1個）だけを削除（DeleteでもOK）'
                 }, '描画削除(shift+delで小節内全削除)'),
                 React.createElement('button', {
                   onClick:()=>{ if (!selection) return; if (selection.kind==="measure") deleteMeasure(selection.row, selection.col); },
@@ -615,7 +711,7 @@
                 const total = row.reduce((a,b)=>a+b,0) || 1;
                 return React.createElement('div', { key:rowIdx, ref:el=>rowsRef.current[rowIdx]=el, className:'relative flex gap-0 items-stretch overflow-hidden rounded-xl border border-slate-700' },
                   row.map((fr, i) => {
-                    const cell = (placements[rowIdx] && placements[rowIdx][i]) || { chords: [], scales: [] };
+                    const cell = (placements[rowIdx] && placements[rowIdx][i]) || { chords: [], texts: [], scales: [] };
                     if (!measureRefs.current[rowIdx]) measureRefs.current[rowIdx] = [];
                     return React.createElement(MeasureBox, {
                       key:i,
@@ -627,10 +723,15 @@
                       onDragBetween: (e) => { if (i < row.length - 1) startDragBetween(e, rowIdx, i); },
                       onDragRight: (e) => { if (i === row.length - 1) startDragRightEdge(e, rowIdx, i); },
                       cell: cell,
-                      onDropPlace: (x, labelFromDrop) => dropPlace(rowIdx, i, x, labelFromDrop),
+                      onDropPlace: (x, payload) => dropPlace(rowIdx, i, x, payload),
                       measureRef: (el)=>{ measureRefs.current[rowIdx][i] = el; },
                       onItemMouseDown: onItemMouseDownFactory(rowIdx, i),
-                      dragPreview: dragState.active ? { ...dragState, row: dragState.to?.row, col: dragState.to?.col, x: dragState.to?.x } : null
+                      dragPreview: dragState.active ? { ...dragState, row: dragState.to?.row, col: dragState.to?.col, x: dragState.to?.x } : null,
+                      onStartEditText,
+                      isEditingText: editingText,
+                      onEditTextInput,
+                      onEditTextBlur,
+                      onTextKeyDown
                     });
                   })
                 );
@@ -643,7 +744,7 @@
 
     function exportPdf(){
       const { jsPDF } = window.jspdf;
-      const doc = new jsPDF({ unit:'mm', format:'a4', orientation:'portrait' });
+      const doc = new jsPDF({ unit:'mm', format:'a4', orientation:'landscape' });
 
       const pageW = doc.internal.pageSize.getWidth();
       const pageH = doc.internal.pageSize.getHeight();
@@ -654,10 +755,47 @@
       const scoreKey  = document.querySelector('input[placeholder="例: C / G / Fm など"]')?.value || '';
 
       const rowsState       = window.__getRows?.() || [[1]];
-      const placementsState = window.__getPlacements?.() || [[{chords:[],scales:[]}]];
+      const placementsState = window.__getPlacements?.() || [[{chords:[],texts:[],scales:[]}]];
 
       function mmToPx(mm, dpi=192){ return Math.round(mm * dpi / 25.4); }
+      function pxToMm(px, dpi){ return px * 25.4 / dpi; }
+      function abbreviateScaleName(txt){
+        const repl = [
+          [/Mixolydian b9 b13 \(HP5\)/g, 'HP5'],
+          [/Neapolitan Minor/g, 'N-Minor'],
+          [/Double Harmonic Major/g, 'D-Harm. M.'],
+          [/Harmonic Major/g,'Harm. Maj.'], [/Harmonic Minor/g,'Harm. Min.'],
+          [/Double Harmonic/g,'Dbl Harm.'], [/Neapolitan/g,'Neap.'], [/Mixolydian/g,'Mixolyd.'],
+          [/Lydian/g,'Lyd.'], [/Ionian/g,'Ion.'], [/Aeolian/g,'Aeol.'], [/Persian Scale/g,'Persian'],
+          [/Augmented/g,'Aug.'], [/Diminished/g,'Dim.'], [/Altered/g,'Alt.']
+        ];
+        let out = String(txt);
+        for (const [r,s] of repl){ out = out.replace(r,s); }
+        return out;
+      }
+
       function drawPage(rows, placements){
+
+function drawTextWithBox(txt, x, y, size=9) {
+  const fontBase = Math.max(10, Math.floor(mmToPx(size,dpi)/3));
+  ctx.font = `${fontBase}px "Noto Sans JP", system-ui, Arial`;
+  const textWidth = ctx.measureText(txt).width;
+  const textHeight = fontBase * 1.2;
+  const pad = 3;
+
+  // 背景（白）
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(mmX(x) - textWidth/2 - pad,
+               mmY(y) - textHeight + pad,
+               textWidth + pad*2,
+               textHeight);
+
+  // 文字（黒）
+  ctx.fillStyle = '#000000';
+  ctx.textAlign = 'center';
+  ctx.fillText(txt, mmX(x), mmY(y));
+}
+
         const dpi = 192;
         const Wpx = mmToPx(pageW, dpi);
         const Hpx = mmToPx(pageH, dpi);
@@ -679,7 +817,7 @@
         if (titleText){ ctx.font = `${mmToPx(14, dpi)/3}px "Noto Sans JP", system-ui, Arial`; ctx.fillText(titleText, mmX(margin.left), mmY(cursorY)); cursorY += 8; }
         if (scoreKey){ ctx.font = `${mmToPx(10, dpi)/3}px "Noto Sans JP", system-ui, Arial`; ctx.fillText(`Key: ${scoreKey}`, mmX(margin.left), mmY(cursorY)); cursorY += 10; } else { cursorY += 4; }
 
-        const staffH = 12; const staffGap = staffH/4; const topOffsets = { chord:-5, staff:0, scale: staffH + 5 };
+        const staffH = 12; const staffGap = staffH/4; const topOffsets = { chord:-5, staff:0, text: staffH - 6, scale: staffH + 5 };
         const systemInnerH = staffH + 12; const systemSpacing = 6;
         const line = (x1,y1,x2,y2,w=0.1)=>{ ctx.lineWidth = mmToPx(w, dpi/1.5); ctx.beginPath(); ctx.moveTo(mmX(x1),mmY(y1)); ctx.lineTo(mmX(x2),mmY(y2)); ctx.stroke(); };
 
@@ -693,6 +831,58 @@
             while (px > maxPx && scale > 0.8){ scale -= 0.05; ctx.font = `${bold?'700':'400'} ${Math.floor(fontBase*scale)}px "Noto Sans JP", system-ui, Arial`; px = ctx.measureText(txt).width; }
           }
           ctx.fillText(txt, mmX(x), mmY(y));
+        }
+
+        function measureTextMm(txt, basePt, bold){
+          const basePx = Math.max(10, Math.floor(mmToPx(basePt,dpi)/3));
+          const font = `${bold?'700':'400'} ${basePx}px "Noto Sans JP", system-ui, Arial`;
+          ctx.save(); ctx.font = font;
+          const wPx = ctx.measureText(txt).width;
+          ctx.restore();
+          return pxToMm(wPx, dpi);
+        }
+        const MIN_GAP_MM = 3;
+        const CHORD_LANES = 3;
+        const TEXT_LANES  = 2;
+        const SCALE_LANES = 2;
+        const LANE_OFFSET_MM = 4.2;
+        const NEAR_X_MM = 6;
+        function layoutLabels(items, xStartMm, wMm, lanes, yDir, basePt, bold){
+          const nodes = items.map((it,i)=>({ i, text:it.text, cx: xStartMm + it.x * wMm }))
+                                .sort((a,b)=>a.cx-b.cx);
+          const laneRight = Array(lanes).fill(-1e9);
+          const lastCx = Array(lanes).fill(-1e9);
+          let lastUsedLane = -1;
+          const placed = [];
+          nodes.forEach(n=>{
+            const valText = n.text || ''; // 空でも幅を測る（0なら最小に）
+            let w = Math.max(4, measureTextMm(valText, basePt, bold)); // 最小幅を確保
+            let lane = 0;
+            while (lane < lanes){
+              const leftMm = n.cx - w/2;
+              const farEnoughX = (n.cx - lastCx[lane]) >= (typeof NEAR_X_MM!=='undefined'?NEAR_X_MM:0);
+              if (leftMm > laneRight[lane] + MIN_GAP_MM && farEnoughX) break;
+              lane++;
+            }
+            if (lane >= lanes) lane = lanes - 1;
+            if (lanes>=2 && lastUsedLane===lane){
+              const tooClose = Math.abs(n.cx - lastCx[lane]) < (NEAR_X_MM*1.2);
+              if (tooClose){ lane = (lane+1)%lanes; }
+            }
+            let scale = 1.0;
+            while ((n.cx - (w*scale)/2) <= (laneRight[lane] + MIN_GAP_MM) && scale > 0.8){
+              scale -= 0.05;
+            }
+            const fitPt = basePt * scale;
+            const fitW  = w * scale;
+            const right = Math.min(xStartMm + wMm, n.cx + fitW/2);
+            laneRight[lane] = right;
+            lastCx[lane] = n.cx;
+            lastUsedLane = lane;
+            placed.push({ i:n.i, cx:n.cx, yOffsetMm: yDir * (lane * LANE_OFFSET_MM), fitPt });
+          });
+          placed.sort((a,b)=>a.i-b.i);
+          return placed;
         }
 
         let measureNo = 1; let drawn = 0;
@@ -711,9 +901,39 @@
             const fr = row[c]; const w = contentW * (fr / frSum);
             if (c>0){ line(xCursor, staffTop, xCursor, staffTop + staffH, 0.35); }
             const noY = staffTop - 2.5; textAt(String(measureNo), xCursor + 2, noY, 'left', false, 8);
-            const cell = (placements[r] && placements[r][c]) || { chords:[], scales:[] };
-            (cell.chords||[]).forEach(ch=>{ const cx = xCursor + (ch.x * w); const y = staffTop + topOffsets.chord; textAt(ch.text, cx, y, 'center', true, 11, Math.min(w - 3, 30)); });
-            (cell.scales||[]).forEach(sc=>{ const sx = xCursor + (sc.x * w); const y = staffTop + topOffsets.scale; textAt(sc.text, sx, y, 'center', false, 9); });
+            const cell = (placements[r] && placements[r][c]) || { chords:[], texts:[], scales:[] };
+            (function(){
+            const chordItems = (cell.chords||[]);
+            if (chordItems.length){
+              const layoutC = layoutLabels(chordItems, xCursor, w, CHORD_LANES, -1, 11, true);
+              for (let i=0;i<layoutC.length;i++){
+                const p = layoutC[i];
+                const yC = staffTop + topOffsets.chord + p.yOffsetMm;
+                const cxC = xCursor + chordItems[i].x * w;
+                textAt(chordItems[i].text, cxC, yC, 'center', true, p.fitPt, Math.min(w - 3, 30));
+              }
+            }
+            const textItems = (cell.texts||[]);
+            if (textItems.length){
+              const layoutT = layoutLabels(textItems, xCursor, w, TEXT_LANES, +1, 9, false);
+              for (let j=0;j<layoutT.length;j++){
+                const pt = layoutT[j];
+                const yT = staffTop + topOffsets.text + pt.yOffsetMm;
+                const cxT = xCursor + textItems[j].x * w;
+                drawTextWithBox(textItems[j].text || '', cxT, yT, pt.fitPt);
+              }
+            }
+            const scaleItems = (cell.scales||[]);
+            if (scaleItems.length){
+              const layoutS = layoutLabels(scaleItems, xCursor, w, SCALE_LANES, +1, 9, false);
+              for (let j=0;j<layoutS.length;j++){
+                const ps = layoutS[j];
+                const yS = staffTop + topOffsets.scale + ps.yOffsetMm;
+                const cxS = xCursor + scaleItems[j].x * w;
+                textAt(abbreviateScaleName(scaleItems[j].text), cxS, yS, 'center', false, ps.fitPt, Math.min(w - 3, 26));
+              }
+            }
+          })()
             xCursor += w; measureNo += 1;
           }
           cursorY += systemInnerH + systemSpacing; drawn++;
