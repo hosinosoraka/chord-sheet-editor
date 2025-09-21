@@ -10,9 +10,9 @@
     :root{ --staff-stroke:#3b475a; --staff-edge:#55637a; }
     .dark{ --staff-stroke:#cbd5e1; --staff-edge:#94a3b8; }
     body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
-    .chip{ display:inline-flex;align-items:center;border:1px solid #cbd5e1;border-radius:999px;padding:6px 10px;background:#fff;font-weight:700;cursor:grab;user-select:none }
+    .chip{ display:inline-flex;align-items:center;border:1px solid #cbd5e1;border-radius:999px;padding:6px 10px;background:#fff;font-weight:700;cursor:grab;user-select:none; touch-action: none; }
     .dark .chip{ background:#0b1220;border-color:#334155;color:#e5e7eb; }
-    .item-pill{ position:absolute;transform:translate(-50%,-50%);padding:2px 6px;font-size:11px;border-radius:6px;border:1px solid #cbd5e1;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.08) }
+    .item-pill{ position:absolute;transform:translate(-50%,-50%);padding:2px 6px;font-size:11px;border-radius:6px;border:1px solid #cbd5e1;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.08); touch-action: none; }
     .dark .item-pill{ background:#0b1220;border-color:#334155;color:#e5e7eb;box-shadow:0 1px 2px rgba(0,0,0,.4) }
     .item-pill.scale{ background:#059669;color:#fff;border-color:transparent;transform:translate(-50%, -40%) }
     .dark .item-pill.scale{ background:#059669;color:#fff;border-color:transparent;transform:translate(-50%, -40%) }
@@ -22,7 +22,6 @@
     .dark .item-ghost{ border-color:#94a3b8;background:#0f172a;color:#e2e8f0 }
     .drag-guide{ position:absolute; top:0; bottom:0; width:1px; background:#60a5fa; opacity:.85; }
     .no-select{ user-select:none;-webkit-user-select:none }
-    /* placeholder for empty contenteditable */
     [contenteditable][data-placeholder]:empty:before{ content: attr(data-placeholder); color: #94a3b8; }
     @media print{
       .print-title{ font-size: 20pt !important; font-weight: 700 !important; margin-bottom: 6pt !important; }
@@ -38,9 +37,9 @@
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
+  
 <script src="./fonts.js"></script>
-
-  <script>
+<script>
     const { useRef, useState, useEffect } = React;
 
     const ROOTS = ["C","C#","Db","D","D#","Eb","E","F","F#","Gb","G","G#","Ab","A","A#","Bb","B"];
@@ -60,13 +59,6 @@
     };
 
     function StaffSVG(){
-      /* Pointer/touch helper */
-      function clientXY(ev){
-        if (ev && typeof ev.clientX === 'number') return { x: ev.clientX, y: ev.clientY };
-        const t = ev?.touches?.[0] || ev?.changedTouches?.[0];
-        return { x: t?.clientX ?? 0, y: t?.clientY ?? 0 };
-      }
-    
       const HEIGHT = 40; const GAP = 8;
       return React.createElement('svg', { width:'100%', height:HEIGHT, viewBox:'0 0 1200 '+HEIGHT, preserveAspectRatio:'none', className:'block' },
         React.createElement('g', { transform:'translate(0,0)' },
@@ -79,12 +71,19 @@
       );
     }
 
+    // ---------------- Pointer utils ----------------
+    function clientXY(ev){
+      if (ev && typeof ev.clientX === 'number') return { x: ev.clientX, y: ev.clientY };
+      const t = ev?.touches?.[0] || ev?.changedTouches?.[0];
+      return { x: t?.clientX ?? 0, y: t?.clientY ?? 0 };
+    }
+
     function MeasureBox(props){
       const {
         rowIdx, index, fr, totalFr, isLast, selected, onSelect,
         onDragBetween, onDragRight, cell, onDropPlace,
         measureRef,
-        selection, onItemMouseDown, dragPreview,
+        selection, onItemPointerDown, dragPreview,
         onStartEditText, isEditingText, onEditTextInput, onEditTextBlur, onTextKeyDown
       } = props;
 
@@ -93,21 +92,22 @@
 
       const parseDragPayload = (e) => {
         try {
-          const j = e.dataTransfer.getData('application/json');
+          const j = e.dataTransfer?.getData('application/json');
           if (j) {
             const o = JSON.parse(j);
             if (o && (o.type==='chord' || o.type==='scale' || o.type==='text') && typeof o.text==='string') return o;
           }
         } catch {}
-        const txt = e.dataTransfer.getData('text/plain');
-        if (txt) return { type:'chord', text: txt }; // フォールバック（未指定はコード扱い）
+        const txt = e.dataTransfer?.getData('text/plain');
+        if (txt) return { type:'chord', text: txt };
         return null;
       };
 
       const onDrop = (e) => {
         e.preventDefault();
         const rect = e.currentTarget.getBoundingClientRect();
-        const x = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+        const { x: cx } = clientXY(e);
+        const x = Math.min(1, Math.max(0, (cx - rect.left) / rect.width));
         const payload = parseDragPayload(e);
         if (payload) onDropPlace(x, payload);
       };
@@ -132,8 +132,7 @@
                 key:idx,
                 className:'item-pill ' + (isSelected ? 'selected ' : ''),
                 style:{ left:(c.x*100)+'%', touchAction:'none' },
-                onPointerDown:(e)=>{ e.stopPropagation(); e.currentTarget?.setPointerCapture?.(e.pointerId); onItemMouseDown('chord', idx, e); },
-                style:{ left:(c.x*100)+'%', touchAction:'none' },
+                onPointerDown:(e)=>{ e.stopPropagation(); onItemPointerDown('chord', idx, e); },
                 onClick:(e)=>{ e.stopPropagation(); },
                 draggable:false,
                 onDragStart:(e)=>e.preventDefault()
@@ -150,7 +149,7 @@
                 key:idx,
                 className:'item-pill text ' + (isSelected ? 'selected ' : ''),
                 style:{ left:(t.x*100)+'%', minWidth:'28px', touchAction:'none' },
-                onPointerDown:(e)=>{ if (!editing){ e.stopPropagation(); e.currentTarget?.setPointerCapture?.(e.pointerId); onItemMouseDown('text', idx, e); } },
+                onPointerDown:(e)=>{ if (!editing){ e.stopPropagation(); onItemPointerDown('text', idx, e); } },
                 onDoubleClick:(e)=>{ 
                   e.stopPropagation(); 
                   onStartEditText(rowIdx, index, idx); 
@@ -189,7 +188,7 @@
                 key:idx,
                 className:'item-pill scale ' + (isSelected ? 'selected ' : ''),
                 style:{ left:(s.x*100)+'%', touchAction:'none' },
-                onPointerDown:(e)=>{ e.stopPropagation(); e.currentTarget?.setPointerCapture?.(e.pointerId); onItemMouseDown('scale', idx, e); },
+                onPointerDown:(e)=>{ e.stopPropagation(); onItemPointerDown('scale', idx, e); },
                 onClick:(e)=>{ e.stopPropagation(); },
                 draggable:false,
                 onDragStart:(e)=>e.preventDefault()
@@ -214,7 +213,7 @@
       );
     }
 
-const APP_VERSION = "V1.1.1 (Pointer Events, text-edit fix)";
+    const APP_VERSION = "V1.1.1 (Pointer Events, text-edit fix)";
 
     function App(){
       const containerRef = useRef(null);
@@ -228,7 +227,7 @@ const APP_VERSION = "V1.1.1 (Pointer Events, text-edit fix)";
       const [scoreKey, setScoreKey] = useState('');
       const titleRef = useRef(null);
 
-useEffect(()=>{ document.title = `コード譜エディ太`; }, []);
+      useEffect(()=>{ document.title = `コード譜エディ太`; }, []);
       const [selection, setSelection] = useState(null);
 
       const [keySel, setKeySel] = useState('C');
@@ -239,8 +238,7 @@ useEffect(()=>{ document.title = `コード譜エディ太`; }, []);
       const [chBass, setChBass] = useState('');
 
       const [placements, setPlacements] = useState([[ { chords: [], texts: [], scales: [] } ]]);
-
-      const [editingText, setEditingText] = useState(null); // {row,col,index}
+      const [editingText, setEditingText] = useState(null);
 
       const fileInputRef = useRef(null);
 
@@ -357,121 +355,7 @@ useEffect(()=>{ document.title = `コード譜エディ太`; }, []);
         }));
       }
 
-      function onItemPointerDownFactory(rowIdx, colIdx){
-        return (type, itemIndex, e) => {
-          e.preventDefault();
-          setEditingText(null); // ドラッグ開始時は編集解除
-          setSelection({ kind:'item', type, row:rowIdx, col:colIdx, index:itemIndex });
-
-          const ref = measureRefs.current[rowIdx]?.[colIdx];
-          if (!ref) return;
-          const rect = ref.getBoundingClientRect();
-
-          const cell = (placements[rowIdx] && placements[rowIdx][colIdx]) || { chords:[], texts:[], scales:[] };
-          const list = type==='chord' ? cell.chords : (type==='scale' ? cell.scales : cell.texts);
-          const src = list[itemIndex];
-          if (!src) return;
-
-          const _pt = clientXY(e);
-          const xInMeasure = Math.min(1, Math.max(0, (_pt.x - rect.left) / rect.width));
-
-          setDragState({
-            active:true, type, text: src.text,
-            from:{ row: rowIdx, col: colIdx, index: itemIndex, x: src.x },
-            to:{ row: rowIdx, col: colIdx, x: xInMeasure },
-            offsetX: xInMeasure - src.x,
-            startX: clientXY(e).x, startY: clientXY(e).y, moved:false
-          });
-          window.addEventListener('pointermove', onItemMouseMove, { passive:false });
-          window.addEventListener('pointerup', onItemMouseUp, { passive:false });
-          document.body.classList.add('no-select');
-        };
-      }
-
-      function findMeasureAt(clientX, clientY){
-        for (let r=0; r<measureRefs.current.length; r++){
-          const rowArr = measureRefs.current[r] || [];
-          for (let c=0; c<rowArr.length; c++){
-            const el = rowArr[c];
-            if (!el) continue;
-            const rect = el.getBoundingClientRect();
-            if (clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom){
-              const x = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-              return { row:r, col:c, x };
-            }
-          }
-        }
-        return null;
-      }
-
-      function onItemMouseMove(e){
-        setDragState(prev => {
-          if (!prev.active) return prev;
-          const moved = prev.moved ||
-            Math.abs(clientXY(e).x - (prev.startX||0)) > DRAG_THRESHOLD_PX ||
-            Math.abs(clientXY(e).y - (prev.startY||0)) > DRAG_THRESHOLD_PX;
-          if (!moved) return prev;
-          const _p = clientXY(e); const hit = findMeasureAt(_p.x, _p.y);
-          if (!hit) return prev;
-          return { ...prev, moved:true, to: { row: hit.row, col: hit.col, x: hit.x } };
-        });
-      }
-
-      function onItemMouseUp(){
-        setDragState(prev => {
-          if (!prev.active) return prev;
-          const { type, text, from, to } = prev;
-
-          const cleanup = () => {
-            window.removeEventListener('pointermove', onItemMouseMove, { passive:false });
-            window.removeEventListener('pointerup', onItemMouseUp, { passive:false });
-            document.body.classList.remove('no-select');
-          };
-
-          if (!to || typeof to.row!== 'number' || typeof to.col!== 'number') {
-            cleanup();
-            return { active:false, type:null, text:'', from:null, to:null, offsetX:0, startX:0, startY:0, moved:false };
-          }
-
-          if (!prev.moved) {
-            setSelection({ kind:'item', type, row: from.row, col: from.col, index: from.index });
-            cleanup();
-            return { active:false, type:null, text:'', from:null, to:null, offsetX:0, startX:0, startY:0, moved:false };
-          }
-
-          let insertedIndex = 0;
-          setPlacements(old => {
-            const removed = old.map((prow, rIdx) => {
-              if (rIdx !== from.row) return prow;
-              return prow.map((cell, cIdx) => {
-                if (cIdx !== from.col) return cell;
-                const next = { chords:[...cell.chords], texts:[...cell.texts], scales:[...cell.scales] };
-                if (type==='chord') next.chords.splice(from.index, 1);
-                else if (type==='scale') next.scales.splice(from.index, 1);
-                else next.texts.splice(from.index, 1);
-                return next;
-              });
-            });
-            const placed = removed.map((prow, rIdx) => {
-              if (rIdx !== to.row) return prow;
-              return prow.map((cell, cIdx) => {
-                if (cIdx !== to.col) return cell;
-                const next = { chords:[...cell.chords], texts:[...cell.texts], scales:[...cell.scales] };
-                if (type==='chord') { next.chords.push({ x: to.x, text }); insertedIndex = next.chords.length - 1; }
-                else if (type==='scale') { next.scales.push({ x: to.x, text }); insertedIndex = next.scales.length - 1; }
-                else { next.texts.push({ x: to.x, text }); insertedIndex = next.texts.length - 1; }
-                return next;
-              });
-            });
-            return placed;
-          });
-          setSelection({ kind:'item', type, row: to.row, col: to.col, index: insertedIndex });
-          cleanup();
-          return { active:false, type:null, text:'', from:null, to:null, offsetX:0, startX:0, startY:0, moved:false };
-        });
-      }
-
-      // テキスト編集ハンドラ
+      // ---------- Text edit handlers (restored) ----------
       function onStartEditText(row, col, index){
         setEditingText({ row, col, index });
         setSelection({ kind:'item', type:'text', row, col, index });
@@ -493,6 +377,118 @@ useEffect(()=>{ document.title = `コード譜エディ太`; }, []);
         if (e.key === 'Enter'){ e.preventDefault(); e.currentTarget.blur(); }
         else if (e.key === 'Escape'){ e.preventDefault(); e.currentTarget.blur(); }
       }
+
+      // ---------- Item drag (Pointer Events) ----------
+      function onItemPointerDownFactory(rowIdx, colIdx){
+        return (type, itemIndex, e) => {
+          e.preventDefault();
+          setEditingText(null);
+          setSelection({ kind:'item', type, row:rowIdx, col:colIdx, index:itemIndex });
+
+          const ref = measureRefs.current[rowIdx]?.[colIdx];
+          if (!ref) return;
+          const rect = ref.getBoundingClientRect();
+
+          const cell = (placements[rowIdx] && placements[rowIdx][colIdx]) || { chords:[], texts:[], scales:[] };
+          const list = type==='chord' ? cell.chords : (type==='scale' ? cell.scales : cell.texts);
+          const src = list[itemIndex];
+          if (!src) return;
+
+          const { x: cx, y: cy } = clientXY(e);
+          const xInMeasure = Math.min(1, Math.max(0, (cx - rect.left) / rect.width));
+          e.currentTarget?.setPointerCapture?.(e.pointerId);
+
+          setDragState({
+            active:true, type, text: src.text,
+            from:{ row: rowIdx, col: colIdx, index: itemIndex, x: src.x },
+            to:{ row: rowIdx, col: colIdx, x: xInMeasure },
+            offsetX: xInMeasure - src.x,
+            startX: cx, startY: cy, moved:false
+          });
+
+          const onMove = (ev)=>{
+            setDragState(prev => {
+              if (!prev.active) return prev;
+              const { x: mx, y: my } = clientXY(ev);
+              const moved = prev.moved ||
+                Math.abs(mx - (prev.startX||0)) > 3 ||
+                Math.abs(my - (prev.startY||0)) > 3;
+              if (!moved) return prev;
+
+              for (let r=0; r<measureRefs.current.length; r++){
+                const rowArr = measureRefs.current[r] || [];
+                for (let c=0; c<rowArr.length; c++){
+                  const el = rowArr[c];
+                  if (!el) continue;
+                  const rct = el.getBoundingClientRect();
+                  if (mx >= rct.left && mx <= rct.right && my >= rct.top && my <= rct.bottom){
+                    const x = Math.min(1, Math.max(0, (mx - rct.left) / rct.width));
+                    return { ...prev, moved:true, to: { row: r, col: c, x } };
+                  }
+                }
+              }
+              return prev;
+            });
+          };
+
+          const onUp = ()=>{
+            setDragState(prev => {
+              if (!prev.active) return prev;
+              const { type, text, from, to } = prev;
+              const cleanup = () => {
+                window.removeEventListener('pointermove', onMove, { passive:false });
+                window.removeEventListener('pointerup', onUp, { passive:false });
+                try{ e.currentTarget?.releasePointerCapture?.(e.pointerId); }catch{}
+                document.body.classList.remove('no-select');
+              };
+              if (!to || typeof to.row!== 'number' || typeof to.col!== 'number') {
+                cleanup();
+                return { active:false, type:null, text:'', from:null, to:null, offsetX:0, startX:0, startY:0, moved:false };
+              }
+              if (!prev.moved) {
+                setSelection({ kind:'item', type, row: from.row, col: from.col, index: from.index });
+                cleanup();
+                return { active:false, type:null, text:'', from:null, to:null, offsetX:0, startX:0, startY:0, moved:false };
+              }
+              let insertedIndex = 0;
+              setPlacements(old => {
+                const removed = old.map((prow, rIdx) => {
+                  if (rIdx !== from.row) return prow;
+                  return prow.map((cell, cIdx) => {
+                    if (cIdx !== from.col) return cell;
+                    const next = { chords:[...cell.chords], texts:[...cell.texts], scales:[...cell.scales] };
+                    if (type==='chord') next.chords.splice(from.index, 1);
+                    else if (type==='scale') next.scales.splice(from.index, 1);
+                    else next.texts.splice(from.index, 1);
+                    return next;
+                  });
+                });
+                const placed = removed.map((prow, rIdx) => {
+                  if (rIdx !== to.row) return prow;
+                  return prow.map((cell, cIdx) => {
+                    if (cIdx !== to.col) return cell;
+                    const next = { chords:[...cell.chords], texts:[...cell.texts], scales:[...cell.scales] };
+                    if (type==='chord') { next.chords.push({ x: to.x, text }); insertedIndex = next.chords.length - 1; }
+                    else if (type==='scale') { next.scales.push({ x: to.x, text }); insertedIndex = next.scales.length - 1; }
+                    else { next.texts.push({ x: to.x, text }); insertedIndex = next.texts.length - 1; }
+                    return next;
+                  });
+                });
+                return placed;
+              });
+              setSelection({ kind:'item', type, row: to.row, col: to.col, index: insertedIndex });
+              cleanup();
+              return { active:false, type:null, text:'', from:null, to:null, offsetX:0, startX:0, startY:0, moved:false };
+            });
+          };
+
+          window.addEventListener('pointermove', onMove, { passive:false });
+          window.addEventListener('pointerup', onUp, { passive:false });
+          document.body.classList.add('no-select');
+        };
+      }
+
+      const onItemPointerDown = (rowIdx, colIdx) => onItemPointerDownFactory(rowIdx, colIdx);
 
       useEffect(()=>{
         const isTypingInEditable = () => {
@@ -597,37 +593,76 @@ useEffect(()=>{ document.title = `コード譜エディ太`; }, []);
         e.target.value = "";
       }
 
-      function startDragBetween(e, rowIdx, leftIndex){
-        e.preventDefault(); e.stopPropagation();
-        const startX = clientXY(e).x; e.currentTarget?.setPointerCapture?.(e.pointerId); const startRow = rows[rowIdx].slice();
-        const totalFr = startRow.reduce((a,b)=>a+b,0) || 1; const pairTotal = startRow[leftIndex] + startRow[leftIndex+1];
-        const onMove = (ev) => { const cx = clientXY(ev).x;
+      // ---------- Measure border drag (Pointer Events) ----------
+      function startDragBetween(ev, rowIdx, leftIndex){
+        ev.preventDefault(); ev.stopPropagation();
+        ev.currentTarget?.setPointerCapture?.(ev.pointerId);
+        const { x: startX } = clientXY(ev);
+        const startRow = rows[rowIdx].slice();
+        const totalFr = startRow.reduce((a,b)=>a+b,0) || 1;
+        const pairTotal = startRow[leftIndex] + startRow[leftIndex+1];
+
+        const onMove = (e) => {
+          const { x: cx } = clientXY(e);
           const dxFr = pxToFr(rowIdx, cx - startX, totalFr);
-          let L = startRow[leftIndex] + dxFr; if (L < MIN_FR) L = MIN_FR; if (L > pairTotal - MIN_FR) L = pairTotal - MIN_FR;
-          const nextRow = startRow.slice(); nextRow[leftIndex] = L; nextRow[leftIndex+1] = pairTotal - L; setRows(prev => prev.map((r, ri) => (ri === rowIdx ? nextRow : r)));
+          let L = startRow[leftIndex] + dxFr;
+          if (L < MIN_FR) L = MIN_FR;
+          if (L > pairTotal - MIN_FR) L = pairTotal - MIN_FR;
+
+          const nextRow = startRow.slice();
+          nextRow[leftIndex]   = L;
+          nextRow[leftIndex+1] = pairTotal - L;
+          setRows(prev => prev.map((r, ri) => (ri === rowIdx ? nextRow : r)));
         };
-        const onUp = () => { window.removeEventListener('pointermove', onMove, { passive:false }); window.removeEventListener('pointerup', onUp, { passive:false }); try{ e.currentTarget?.releasePointerCapture?.(e.pointerId); }catch{} };
-        window.addEventListener('pointermove', onMove, { passive:false }); window.addEventListener('pointerup', onUp, { passive:false });
+
+        const onUp = () => {
+          window.removeEventListener('pointermove', onMove, { passive:false });
+          window.removeEventListener('pointerup', onUp, { passive:false });
+          try{ ev.currentTarget?.releasePointerCapture?.(ev.pointerId); }catch{}
+        };
+
+        window.addEventListener('pointermove', onMove, { passive:false });
+        window.addEventListener('pointerup', onUp, { passive:false });
       }
 
-      function startDragRightEdge(e, rowIdx, index){
-        e.preventDefault(); e.stopPropagation();
-        const startX = clientXY(e).x; e.currentTarget?.setPointerCapture?.(e.pointerId); const startRow = rows[rowIdx].slice(); const totalBefore = startRow.reduce((a,b)=>a+b,0);
-        const onMove = (ev) => { const cx = clientXY(ev).x;
-          let W = startRow[index] + pxToFr(rowIdx, cx - startX, totalBefore); if (W < MIN_FR) W = MIN_FR;
-          const nextRow = startRow.slice(); nextRow[index] = W; const rest = nextRow.reduce((a,b)=>a+b,0); for (let i=0;i<nextRow.length;i++) nextRow[i] = nextRow[i] * totalBefore / rest; setRows(prev => prev.map((r, ri) => (ri === rowIdx ? nextRow : r)));
+      function startDragRightEdge(ev, rowIdx, index){
+        ev.preventDefault(); ev.stopPropagation();
+        ev.currentTarget?.setPointerCapture?.(ev.pointerId);
+        const { x: startX } = clientXY(ev);
+        const startRow = rows[rowIdx].slice();
+        const totalBefore = startRow.reduce((a,b)=>a+b,0);
+
+        const onMove = (e) => {
+          const { x: cx } = clientXY(e);
+          let W = startRow[index] + pxToFr(rowIdx, cx - startX, totalBefore);
+          if (W < MIN_FR) W = MIN_FR;
+
+          const nextRow = startRow.slice();
+          nextRow[index] = W;
+
+          const rest = nextRow.reduce((a,b)=>a+b,0);
+          for (let i=0;i<nextRow.length;i++) nextRow[i] = nextRow[i] * totalBefore / rest;
+          setRows(prev => prev.map((r, ri) => (ri === rowIdx ? nextRow : r)));
         };
-        const onUp = () => { window.removeEventListener('pointermove', onMove, { passive:false }); window.removeEventListener('pointerup', onUp, { passive:false }); try{ e.currentTarget?.releasePointerCapture?.(e.pointerId); }catch{} };
-        window.addEventListener('pointermove', onMove, { passive:false }); window.addEventListener('pointerup', onUp, { passive:false });
+
+        const onUp = () => {
+          window.removeEventListener('pointermove', onMove, { passive:false });
+          window.removeEventListener('pointerup', onUp, { passive:false });
+          try{ ev.currentTarget?.releasePointerCapture?.(ev.pointerId); }catch{}
+        };
+
+        window.addEventListener('pointermove', onMove, { passive:false });
+        window.addEventListener('pointerup', onUp, { passive:false });
       }
 
       return React.createElement('div', { className:'min-h-screen bg-slate-900 text-slate-100 flex' },
         
         React.createElement('aside', { className:'w-1/4 border-r border-slate-700 bg-slate-800 p-4 space-y-6 no-print' },
-React.createElement('div', { className:'flex flex-col items-center mb-4' },
-  React.createElement('h1', { className:'text-lg font-bold text-slate-100 mb-1' }, 'コード譜エディ太'),
-  React.createElement('div', { className:'text-sm text-slate-400' }, APP_VERSION)
-),          React.createElement('section', { className:'bg-slate-800 border border-slate-700 rounded-2xl shadow-sm p-4 space-y-4' },
+          React.createElement('div', { className:'flex flex-col items-center mb-4' },
+            React.createElement('h1', { className:'text-lg font-bold text-slate-100 mb-1' }, 'コード譜エディ太'),
+            React.createElement('div', { className:'text-sm text-slate-400' }, APP_VERSION)
+          ),
+          React.createElement('section', { className:'bg-slate-800 border border-slate-700 rounded-2xl shadow-sm p-4 space-y-4' },
             React.createElement('h2', { className:'text-sm font-medium text-slate-300' }, 'キー / スケール（リスト）'),
             React.createElement('div', { className:'grid grid-cols-2 gap-3' },
               React.createElement('label', { className:'text-xs text-slate-300' }, 'Key',
@@ -704,7 +739,7 @@ React.createElement('div', { className:'flex flex-col items-center mb-4' },
             }, '📖 ReadMe')
           )
         ),
-React.createElement('main', { className:'flex-1 min-w-0 p-6', ref: containerRef },
+        React.createElement('main', { className:'flex-1 min-w-0 p-6', ref: containerRef },
           React.createElement('div', { className:'bg-slate-800 border border-slate-700 rounded-2xl shadow-sm p-4' },
             React.createElement('div', { className:'mb-2 flex flex-wrap items-start justify-between gap-2' },
               React.createElement('div', { className:'flex-1 min-w-[260px]' },
@@ -764,7 +799,7 @@ React.createElement('main', { className:'flex-1 min-w-0 p-6', ref: containerRef 
                       cell: cell,
                       onDropPlace: (x, payload) => dropPlace(rowIdx, i, x, payload),
                       measureRef: (el)=>{ measureRefs.current[rowIdx][i] = el; },
-                      onItemMouseDown: onItemPointerDownFactory(rowIdx, i),
+                      onItemPointerDown: onItemPointerDown(rowIdx, i),
                       dragPreview: dragState.active ? { ...dragState, row: dragState.to?.row, col: dragState.to?.col, x: dragState.to?.x } : null,
                       onStartEditText,
                       isEditingText: editingText,
@@ -782,258 +817,230 @@ React.createElement('main', { className:'flex-1 min-w-0 p-6', ref: containerRef 
     }
 
 
-//ここからPDF
-
-function addJPFonts(doc){
-  // ▼ ここは「後で」Base64を入れる場所。先に枠だけ用意しておく
-  // window.NOTO_SANS_JP_REG = ''; // Base64: NotoSansJP-Regular.ttf
-  // window.NOTO_SANS_JP_BOLD = '...'; // Base64: NotoSansJP-Bold.ttf
-  try{
-    if (window.NOTO_SANS_JP_REG && window.NOTO_SANS_JP_BOLD){
-      doc.addFileToVFS('NotoSansJP-Regular.ttf', window.NOTO_SANS_JP_REG);
-      doc.addFont('NotoSansJP-Regular.ttf', 'NotoSansJP', 'normal');
-      doc.addFileToVFS('NotoSansJP-Bold.ttf', window.NOTO_SANS_JP_BOLD);
-      doc.addFont('NotoSansJP-Bold.ttf', 'NotoSansJP', 'bold');
-      return 'NotoSansJP';
-    }
-  }catch(e){}
-  // フォント未埋め込み時のフォールバック（日本語は□になるがレイアウト確認可）
-  return 'helvetica';
-}
-
-function exportPdf(){
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ unit:'mm', format:'a4', orientation:'landscape', compress:true });
-
-  // --- フォント（埋め込み済みなら NotoSansJP、無ければ helvetica）
-  const fontName = addJPFonts(doc);
-  doc.setFont(fontName, 'normal');
-
-  // --- ページ・余白
-  const pageW = doc.internal.pageSize.getWidth();
-  const pageH = doc.internal.pageSize.getHeight();
-  const margin = { top:18, right:15, bottom:18, left:15 };
-  const contentW = pageW - margin.left - margin.right;
-
-  // --- タイトル／キー
-  const titleEl = document.querySelector('.print-title');
-  const keyEl = document.querySelector('input[placeholder="例: C / G / Fm など"]');
-  const titleText = ((titleEl?.value ?? titleEl?.textContent) || '').trim();
-  const scoreKey  = keyEl?.value || '';
-
-  // --- エディタの状態
-  const rowsState       = window.__getRows?.() || [[1]];
-  const placementsState = window.__getPlacements?.() || [[{chords:[],texts:[],scales:[]}]];
-
-  // --- 幅計測（jsPDFベース、単位はmm）
-  function measureTextMm(txt, pt, bold){
-    const prev = { size: doc.internal.getFontSize(), name: doc.getFont().fontName, style: doc.getFont().fontStyle };
-    doc.setFont(fontName, bold ? 'bold' : 'normal');
-    doc.setFontSize(pt);
-    const wMm = doc.getTextDimensions(String(txt||'')).w; // 単位=mm（unit:'mm' のため）
-    doc.setFont(prev.name, prev.style);
-    doc.setFontSize(prev.size);
-    return wMm;
-  }
-
-  // --- テキスト描画（中央/右寄せは手計算で補正）
-  function textAt(txt, x, y, {align='left', bold=false, pt=10, maxWmm=null}={}){
-    let size = pt;
-    let w = measureTextMm(txt, size, bold);
-    if (maxWmm && w > maxWmm){
-      while (w > maxWmm && size > pt*0.8){
-        size -= 0.5;
-        w = measureTextMm(txt, size, bold);
-      }
-    }
-    doc.setFont(fontName, bold?'bold':'normal');
-    doc.setFontSize(size);
-    let x0 = x;
-    if (align==='center') x0 = x - w/2;
-    else if (align==='right') x0 = x - w;
-    doc.text(String(txt||''), x0, y);
-  }
-
-  // --- 黒文字＋白ボックス（テキスト用）
-  function drawTextWithBox(txt, x, y, pt=9){
-    const pad = 1.2; // mm
-    const w = measureTextMm(txt, pt, false);
-    const h = pt * 0.42 * 1.2; // おおよその行高(mm)。必要なら微調整OK
-    doc.setFillColor(255,255,255);
-    doc.rect(x - w/2 - pad, y - h + pad*0.6, w + pad*2, h, 'F');
-    doc.setTextColor(0,0,0);
-    textAt(txt, x, y, {align:'center', pt});
-  }
-
-  // --- 線
-  function line(x1,y1,x2,y2,w=0.35){ doc.setLineWidth(w); doc.line(x1,y1,x2,y2); }
-
-  // --- スケール名の省略（既存と同じ）
-  function abbreviateScaleName(txt){
-    const repl = [
-      [/Lydian b7\s*\(Lyd\.?\s*Dominant\)/gi, 'Lyd. b7'],
-      [/Lydian #5\s*\(Lyd\.?\s*Augmented\)/gi, 'Lyd. #5'],
-      [/Locrian natural 6/gi, 'Locrian nat.6'],
-      [/Ionian #5/gi, 'Ion. #5'],
-      [/Dorian #4/gi, 'Dor. #4'],
-      [/Aeolian b5/gi, 'Aeol. b5'],
-      [/Altered Scale\s*\(Super Locrian\)/gi, 'Super Locrian'],
-      [/Combination Diminished\s*\(Half[–-]Whole\)/gi, 'Dim. H–W'],
-      [/Diminished\s*\(Whole[–-]Half\)/gi, 'Dim. W–H'],
-      [/Japanese Scale\s*\(In Sen\)/gi, 'In Sen'],
-      [/Japanese Scale\s*\(In\)/gi, 'In'],
-      [/Japanese Scale\s*\(Yo\)/gi, 'Yo'],
-      [/Mixolydian b9 b13 \(HP5\)/g, 'HP5'],
-      [/Neapolitan Minor/g, 'N-Minor'],
-      [/Double Harmonic Major/g, 'D-Harm. M.'],
-      [/Harmonic Major/g,'Harm. Maj.'],
-      [/Harmonic Minor/g,'Harm. Min.'],
-      [/Double Harmonic/g,'Dbl Harm.'],
-      [/Neapolitan/g,'Neap.'],
-      [/Mixolydian/g,'Mixolyd.'],
-      [/Lydian/g,'Lyd.'],
-      [/Ionian/g,'Ion.'],
-      [/Aeolian/g,'Aeol.'],
-      [/Persian Scale/g,'Persian'],
-      [/Augmented/g,'Aug.'],
-      [/Diminished/g,'Dim.'],
-      [/Altered/g,'Alt.']
-    ];
-    let out = String(txt);
-    for (const [r,s] of repl){ out = out.replace(r,s); }
-    return out;
-  }
-
-  // --- ラベル配置（既存ロジックを jsPDF 計測に差し替え）
-  const MIN_GAP_MM = 3, LANE_OFFSET_MM = 4.2, NEAR_X_MM = 6;
-  function layoutLabels(items, xStartMm, wMm, lanes, yDir, basePt, bold){
-    const nodes = items.map((it,i)=>({ i, text:it.text, cx: xStartMm + it.x * wMm }))
-                       .sort((a,b)=>a.cx-b.cx);
-    const laneRight = Array(lanes).fill(-1e9);
-    const lastCx = Array(lanes).fill(-1e9);
-    let lastUsedLane = -1;
-    const placed = [];
-    nodes.forEach(n=>{
-      const valText = n.text || '';
-      let w = Math.max(4, measureTextMm(valText, basePt, bold));
-      let lane = 0;
-      while (lane < lanes){
-        const leftMm = n.cx - w/2;
-        const farEnoughX = (n.cx - lastCx[lane]) >= NEAR_X_MM;
-        if (leftMm > laneRight[lane] + MIN_GAP_MM && farEnoughX) break;
-        lane++;
-      }
-      if (lane >= lanes) lane = lanes - 1;
-      if (lanes>=2 && lastUsedLane===lane){
-        const tooClose = Math.abs(n.cx - lastCx[lane]) < (NEAR_X_MM*1.2);
-        if (tooClose){ lane = (lane+1)%lanes; }
-      }
-      let scale = 1.0;
-      while ((n.cx - (w*scale)/2) <= (laneRight[lane] + MIN_GAP_MM) && scale > 0.8){
-        scale -= 0.05;
-      }
-      const fitPt = basePt * scale;
-      const fitW  = w * scale;
-      const right = Math.min(xStartMm + wMm, n.cx + fitW/2);
-      laneRight[lane] = right;
-      lastCx[lane] = n.cx;
-      lastUsedLane = lane;
-      placed.push({ i:n.i, cx:n.cx, yOffsetMm: yDir * (lane * LANE_OFFSET_MM), fitPt });
-    });
-    placed.sort((a,b)=>a.i-b.i);
-    return placed;
-  }
-
-  // --- レイアウト定数（既存と同じ）
-  const staffH = 12, staffGap = staffH/4;
-  const topOffsets = { chord:-5, staff:0, text: staffH - 6, scale: staffH + 5 };
-  const systemInnerH = staffH + 12, systemSpacing = 6;
-
-  // --- タイトル
-  let cursorY = margin.top;
-  if (titleText){ textAt(titleText, margin.left, cursorY, {pt:14}); cursorY += 8; }
-  if (scoreKey){  textAt(`Key: ${scoreKey}`, margin.left, cursorY, {pt:10}); cursorY += 10; } else { cursorY += 4; }
-
-  // --- 本文
-  let measureNo = 1;
-  for (let r=0; r<rowsState.length; r++){
-    const row = rowsState[r]; const frSum = row.reduce((a,b)=>a+b,0) || 1;
-    const needH = systemInnerH + systemSpacing;
-    if (cursorY + needH > (pageH - margin.bottom)){
-      doc.addPage();
-      cursorY = margin.top;
-    }
-
-    const staffTop = cursorY + topOffsets.staff;
-
-    // 五線
-    for (let i=0;i<5;i++){
-      const y = staffTop + i*staffGap;
-      line(margin.left, y, margin.left + contentW, y, 0.35);
-    }
-    // 左右縦線
-    line(margin.left, staffTop, margin.left, staffTop + staffH, 0.5);
-    line(margin.left + contentW, staffTop, margin.left + contentW, staffTop + staffH, 0.5);
-
-    let xCursor = margin.left;
-
-    for (let c=0; c<row.length; c++){
-      const fr = row[c]; const wMm = contentW * (fr / frSum);
-
-      if (c>0) line(xCursor, staffTop, xCursor, staffTop + staffH, 0.35);
-
-      // 小節番号
-      textAt(String(measureNo), xCursor + 2, staffTop - 2.5, {pt:8});
-
-      const cell = (placementsState[r] && placementsState[r][c]) || { chords:[], texts:[], scales:[] };
-
-      // コード
-      const chordItems = (cell.chords||[]);
-      if (chordItems.length){
-        const layoutC = layoutLabels(chordItems, xCursor, wMm, 3, -1, 11, true);
-        for (let i=0;i<layoutC.length;i++){
-          const p = layoutC[i];
-          const yC = staffTop + topOffsets.chord + p.yOffsetMm;
-          const cx = xCursor + chordItems[i].x * wMm;
-          textAt(chordItems[i].text, cx, yC, {align:'center', bold:true, pt:p.fitPt, maxWmm: Math.min(wMm - 3, 30)});
+    // ---------------- PDF Section ----------------
+    function addJPFonts(doc){
+      try{
+        if (window.NOTO_SANS_JP_REG && window.NOTO_SANS_JP_BOLD){
+          doc.addFileToVFS('NotoSansJP-Regular.ttf', window.NOTO_SANS_JP_REG);
+          doc.addFont('NotoSansJP-Regular.ttf', 'NotoSansJP', 'normal');
+          doc.addFileToVFS('NotoSansJP-Bold.ttf', window.NOTO_SANS_JP_BOLD);
+          doc.addFont('NotoSansJP-Bold.ttf', 'NotoSansJP', 'bold');
+          return 'NotoSansJP';
         }
-      }
-
-      // テキスト（白箱）
-      const textItems = (cell.texts||[]);
-      if (textItems.length){
-        const layoutT = layoutLabels(textItems, xCursor, wMm, 2, +1, 9, false);
-        for (let j=0;j<layoutT.length;j++){
-          const p = layoutT[j];
-          const yT = staffTop + topOffsets.text + p.yOffsetMm;
-          const cx = xCursor + textItems[j].x * wMm;
-          drawTextWithBox(textItems[j].text || '', cx, yT, p.fitPt);
-        }
-      }
-
-      // スケール
-      const scaleItems = (cell.scales||[]);
-      if (scaleItems.length){
-        const layoutS = layoutLabels(scaleItems, xCursor, wMm, 2, +1, 9, false);
-        for (let j=0;j<layoutS.length;j++){
-          const p = layoutS[j];
-          const yS = staffTop + topOffsets.scale + p.yOffsetMm;
-          const cx = xCursor + scaleItems[j].x * wMm;
-          textAt(abbreviateScaleName(scaleItems[j].text), cx, yS, {align:'center', pt:p.fitPt, maxWmm: Math.min(wMm - 3, 26)});
-        }
-      }
-
-      xCursor += wMm; measureNo++;
+      }catch(e){}
+      return 'helvetica';
     }
 
-    cursorY += systemInnerH + systemSpacing;
-  }
+    function exportPdf(){
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ unit:'mm', format:'a4', orientation:'landscape', compress:true });
 
-  const filename = (titleText && titleText.trim()) ? `${titleText}.pdf` : 'score.pdf';
-  doc.save(filename);
-}
+      const fontName = addJPFonts(doc);
+      doc.setFont(fontName, 'normal');
 
-//ここまで
+      const pageW = doc.internal.pageSize.getWidth();
+      const pageH = doc.internal.pageSize.getHeight();
+      const margin = { top:18, right:15, bottom:18, left:15 };
+      const contentW = pageW - margin.left - margin.right;
+
+      const titleEl = document.querySelector('.print-title');
+      const keyEl = document.querySelector('input[placeholder="例: C / G / Fm など"]');
+      const titleText = ((titleEl?.value ?? titleEl?.textContent) || '').trim();
+      const scoreKey  = keyEl?.value || '';
+
+      const rowsState       = window.__getRows?.() || [[1]];
+      const placementsState = window.__getPlacements?.() || [[{chords:[],texts:[],scales:[]}]];
+
+      function measureTextMm(txt, pt, bold){
+        const prev = { size: doc.internal.getFontSize(), name: doc.getFont().fontName, style: doc.getFont().fontStyle };
+        doc.setFont(fontName, bold ? 'bold' : 'normal');
+        doc.setFontSize(pt);
+        const wMm = doc.getTextDimensions(String(txt||'')).w;
+        doc.setFont(prev.name, prev.style);
+        doc.setFontSize(prev.size);
+        return wMm;
+      }
+
+      function textAt(txt, x, y, {align='left', bold=false, pt=10, maxWmm=null}={}){
+        let size = pt;
+        let w = measureTextMm(txt, size, bold);
+        if (maxWmm && w > maxWmm){
+          while (w > maxWmm && size > pt*0.8){
+            size -= 0.5;
+            w = measureTextMm(txt, size, bold);
+          }
+        }
+        doc.setFont(fontName, bold?'bold':'normal');
+        doc.setFontSize(size);
+        let x0 = x;
+        if (align==='center') x0 = x - w/2;
+        else if (align==='right') x0 = x - w;
+        doc.text(String(txt||''), x0, y);
+      }
+
+      function drawTextWithBox(txt, x, y, pt=9){
+        const pad = 1.2;
+        const w = measureTextMm(txt, pt, false);
+        const h = pt * 0.42 * 1.2;
+        doc.setFillColor(255,255,255);
+        doc.rect(x - w/2 - pad, y - h + pad*0.6, w + pad*2, h, 'F');
+        doc.setTextColor(0,0,0);
+        textAt(txt, x, y, {align:'center', pt});
+      }
+
+      function line(x1,y1,x2,y2,w=0.35){ doc.setLineWidth(w); doc.line(x1,y1,x2,y2); }
+
+      function abbreviateScaleName(txt){
+        const repl = [
+          [/Lydian b7\s*\(Lyd\.?\s*Dominant\)/gi, 'Lyd. b7'],
+          [/Lydian #5\s*\(Lyd\.?\s*Augmented\)/gi, 'Lyd. #5'],
+          [/Locrian natural 6/gi, 'Locrian nat.6'],
+          [/Ionian #5/gi, 'Ion. #5'],
+          [/Dorian #4/gi, 'Dor. #4'],
+          [/Aeolian b5/gi, 'Aeol. b5'],
+          [/Altered Scale\s*\(Super Locrian\)/gi, 'Super Locrian'],
+          [/Combination Diminished\s*\(Half[–-]Whole\)/gi, 'Dim. H–W'],
+          [/Diminished\s*\(Whole[–-]Half\)/gi, 'Dim. W–H'],
+          [/Japanese Scale\s*\(In Sen\)/gi, 'In Sen'],
+          [/Japanese Scale\s*\(In\)/gi, 'In'],
+          [/Japanese Scale\s*\(Yo\)/gi, 'Yo'],
+          [/Mixolydian b9 b13 \(HP5\)/g, 'HP5'],
+          [/Neapolitan Minor/g, 'N-Minor'],
+          [/Double Harmonic Major/g, 'D-Harm. M.'],
+          [/Harmonic Major/g,'Harm. Maj.'],
+          [/Harmonic Minor/g,'Harm. Min.'],
+          [/Double Harmonic/g,'Dbl Harm.'],
+          [/Neapolitan/g,'Neap.'],
+          [/Mixolydian/g,'Mixolyd.'],
+          [/Lydian/g,'Lyd.'],
+          [/Ionian/g,'Ion.'],
+          [/Aeolian/g,'Aeol.'],
+          [/Persian Scale/g,'Persian'],
+          [/Augmented/g,'Aug.'],
+          [/Diminished/g,'Dim.'],
+          [/Altered/g,'Alt.']
+        ];
+        let out = String(txt);
+        for (const [r,s] of repl){ out = out.replace(r,s); }
+        return out;
+      }
+
+      const MIN_GAP_MM = 3, LANE_OFFSET_MM = 4.2, NEAR_X_MM = 6;
+      function layoutLabels(items, xStartMm, wMm, lanes, yDir, basePt, bold){
+        const nodes = items.map((it,i)=>({ i, text:it.text, cx: xStartMm + it.x * wMm }))
+                           .sort((a,b)=>a.cx-b.cx);
+        const laneRight = Array(lanes).fill(-1e9);
+        const lastCx = Array(lanes).fill(-1e9);
+        let lastUsedLane = -1;
+        const placed = [];
+        nodes.forEach(n=>{
+          const valText = n.text || '';
+          let w = Math.max(4, measureTextMm(valText, basePt, bold));
+          let lane = 0;
+          while (lane < lanes){
+            const leftMm = n.cx - w/2;
+            const farEnoughX = (n.cx - lastCx[lane]) >= NEAR_X_MM;
+            if (leftMm > laneRight[lane] + MIN_GAP_MM && farEnoughX) break;
+            lane++;
+          }
+          if (lane >= lanes) lane = lanes - 1;
+          if (lanes>=2 && lastUsedLane===lane){
+            const tooClose = Math.abs(n.cx - lastCx[lane]) < (NEAR_X_MM*1.2);
+            if (tooClose){ lane = (lane+1)%lanes; }
+          }
+          let scale = 1.0;
+          while ((n.cx - (w*scale)/2) <= (laneRight[lane] + MIN_GAP_MM) && scale > 0.8){
+            scale -= 0.05;
+          }
+          const fitPt = basePt * scale;
+          const fitW  = w * scale;
+          const right = Math.min(xStartMm + wMm, n.cx + fitW/2);
+          laneRight[lane] = right;
+          lastCx[lane] = n.cx;
+          lastUsedLane = lane;
+          placed.push({ i:n.i, cx:n.cx, yOffsetMm: yDir * (lane * LANE_OFFSET_MM), fitPt });
+        });
+        placed.sort((a,b)=>a.i-b.i);
+        return placed;
+      }
+
+      const staffH = 12, staffGap = staffH/4;
+      const topOffsets = { chord:-5, staff:0, text: staffH - 6, scale: staffH + 5 };
+      const systemInnerH = staffH + 12, systemSpacing = 6;
+
+      let cursorY = margin.top;
+      if (titleText){ textAt(titleText, margin.left, cursorY, {pt:14}); cursorY += 8; }
+      if (scoreKey){  textAt(`Key: ${scoreKey}`, margin.left, cursorY, {pt:10}); cursorY += 10; } else { cursorY += 4; }
+
+      let measureNo = 1;
+      for (let r=0; r<rowsState.length; r++){
+        const row = rowsState[r]; const frSum = row.reduce((a,b)=>a+b,0) || 1;
+        const needH = systemInnerH + systemSpacing;
+        if (cursorY + needH > (pageH - margin.bottom)){
+          doc.addPage();
+          cursorY = margin.top;
+        }
+
+        const staffTop = cursorY + topOffsets.staff;
+
+        for (let i=0;i<5;i++){
+          const y = staffTop + i*staffGap;
+          line(margin.left, y, margin.left + contentW, y, 0.35);
+        }
+        line(margin.left, staffTop, margin.left, staffTop + staffH, 0.5);
+        line(margin.left + contentW, staffTop, margin.left + contentW, staffTop + staffH, 0.5);
+
+        let xCursor = margin.left;
+
+        for (let c=0; c<row.length; c++){
+          const fr = row[c]; const wMm = contentW * (fr / frSum);
+          if (c>0) line(xCursor, staffTop, xCursor, staffTop + staffH, 0.35);
+          textAt(String(measureNo), xCursor + 2, staffTop - 2.5, {pt:8});
+
+          const cell = (placementsState[r] && placementsState[r][c]) || { chords:[], texts:[], scales:[] };
+
+          const chordItems = (cell.chords||[]);
+          if (chordItems.length){
+            const layoutC = layoutLabels(chordItems, xCursor, wMm, 3, -1, 11, true);
+            for (let i=0;i<layoutC.length;i++){
+              const p = layoutC[i];
+              const yC = staffTop + topOffsets.chord + p.yOffsetMm;
+              const cx = xCursor + chordItems[i].x * wMm;
+              textAt(chordItems[i].text, cx, yC, {align:'center', bold:true, pt:p.fitPt, maxWmm: Math.min(wMm - 3, 30)});
+            }
+          }
+
+          const textItems = (cell.texts||[]);
+          if (textItems.length){
+            const layoutT = layoutLabels(textItems, xCursor, wMm, 2, +1, 9, false);
+            for (let j=0;j<layoutT.length;j++){
+              const p = layoutT[j];
+              const yT = staffTop + topOffsets.text + p.yOffsetMm;
+              const cx = xCursor + textItems[j].x * wMm;
+              drawTextWithBox(textItems[j].text || '', cx, yT, p.fitPt);
+            }
+          }
+
+          const scaleItems = (cell.scales||[]);
+          if (scaleItems.length){
+            const layoutS = layoutLabels(scaleItems, xCursor, wMm, 2, +1, 9, false);
+            for (let j=0;j<layoutS.length;j++){
+              const p = layoutS[j];
+              const yS = staffTop + topOffsets.scale + p.yOffsetMm;
+              const cx = xCursor + scaleItems[j].x * wMm;
+              textAt(abbreviateScaleName(scaleItems[j].text), cx, yS, {align:'center', pt:p.fitPt, maxWmm: Math.min(wMm - 3, 26)});
+            }
+          }
+
+          xCursor += wMm; measureNo++;
+        }
+
+        cursorY += systemInnerH + systemSpacing;
+      }
+
+      const filename = (titleText && titleText.trim()) ? `${titleText}.pdf` : 'score.pdf';
+      doc.save(filename);
+    }
 
     const root = ReactDOM.createRoot(document.getElementById('root'));
     root.render(React.createElement(App, null));
