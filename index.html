@@ -140,17 +140,31 @@
                 className:'item-pill text ' + (isSelected ? 'selected ' : ''),
                 style:{ left:(t.x*100)+'%', minWidth:'28px' },
                 onMouseDown:(e)=>{ if (!editing){ e.stopPropagation(); onItemMouseDown('text', idx, e); } },
-                onDoubleClick:(e)=>{ e.stopPropagation(); onStartEditText(rowIdx, index, idx); },
+                onDoubleClick:(e)=>{ 
+                  e.stopPropagation(); 
+                  onStartEditText(rowIdx, index, idx); 
+                  requestAnimationFrame(()=>{
+                    const el = e.currentTarget;
+                    if (!el) return;
+                    el.focus();
+                    const r = document.createRange();
+                    r.selectNodeContents(el);
+                    r.collapse(false);
+                    const sel = window.getSelection();
+                    sel.removeAllRanges();
+                    sel.addRange(r);
+                  });
+                },
                 onClick:(e)=>{ e.stopPropagation(); },
                 draggable:false,
                 onDragStart:(e)=>e.preventDefault(),
-                contentEditable: editing ? true : false,
+                contentEditable: editing ? 'plaintext-only' : false,
                 suppressContentEditableWarning: true,
-                onInput:(e)=> onEditTextInput(rowIdx, index, idx, e.currentTarget.textContent || ''),
+                onInput: editing ? (e)=> onEditTextInput(rowIdx, index, idx, e.currentTarget.textContent || '') : undefined,
                 onBlur:(e)=> onEditTextBlur(),
                 onKeyDown:(e)=> onTextKeyDown(e),
                 'data-placeholder':'Text'
-            }, t.text);
+            }, editing ? null : t.text);
           })
         ),
 
@@ -466,7 +480,15 @@
       }
 
       useEffect(()=>{
-        const onKeyDown = (e)=>{
+        const isTypingInEditable = () => {
+          const ae = document.activeElement;
+          if (!ae) return false;
+          const tag = ae.tagName;
+          if (tag === 'INPUT' || tag === 'TEXTAREA') return true;
+          if (ae.isContentEditable) return true;
+          return false;
+        };
+        const onKeyDown = (e)=>{ if (isTypingInEditable()) return;
           if (e.key === 'Delete' || e.key === 'Backspace') {
             if (!selection) return;
             if (selection.kind === 'item') {
