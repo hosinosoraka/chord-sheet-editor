@@ -38,6 +38,8 @@
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
+<script src="./fonts.js"></script>
+
   <script>
     const { useRef, useState, useEffect } = React;
 
@@ -204,7 +206,7 @@
       );
     }
 
-const APP_VERSION = "V1.0.1";
+const APP_VERSION = "V1.1.0";
 
     function App(){
       const containerRef = useRef(null);
@@ -770,239 +772,259 @@ React.createElement('main', { className:'flex-1 min-w-0 p-6', ref: containerRef 
       );
     }
 
-    function exportPdf(){
-      const { jsPDF } = window.jspdf;
-      const doc = new jsPDF({ unit:'mm', format:'a4', orientation:'landscape' });
 
-      const pageW = doc.internal.pageSize.getWidth();
-      const pageH = doc.internal.pageSize.getHeight();
-      const margin = { top:18, right:15, bottom:18, left:15 };
-      const contentW = pageW - margin.left - margin.right;
+//ここからPDF
 
-      const titleText = (document.querySelector('.print-title')?.value ?? document.querySelector('.print-title')?.textContent)?.trim() || '';
-      const scoreKey  = document.querySelector('input[placeholder="例: C / G / Fm など"]')?.value || '';
-
-      const rowsState       = window.__getRows?.() || [[1]];
-      const placementsState = window.__getPlacements?.() || [[{chords:[],texts:[],scales:[]}]];
-
-      function mmToPx(mm, dpi=192){ return Math.round(mm * dpi / 25.4); }
-      function pxToMm(px, dpi){ return px * 25.4 / dpi; }
-      function abbreviateScaleName(txt){
-        const repl = [
-    // ---- 個別：特に長いもの（先に評価） ----
-    [/Lydian b7\s*\(Lyd\.?\s*Dominant\)/gi, 'Lyd. b7'],     // Lydian b7 (Lydian Dominant)
-    [/Lydian #5\s*\(Lyd\.?\s*Augmented\)/gi, 'Lyd. #5'],    // Lydian #5 (Lydian Augmented)
-    [/Locrian natural 6/gi, 'Locrian nat.6'],               // Locrian natural 6
-    [/Ionian #5/gi, 'Ion. #5'],                             // Ionian #5
-    [/Dorian #4/gi, 'Dor. #4'],                             // Dorian #4
-    [/Aeolian b5/gi, 'Aeol. b5'],                           // Aeolian b5
-    [/Altered Scale\s*\(Super Locrian\)/gi, 'Super Locrian'], // Altered Scale (Super Locrian)
-    [/Combination Diminished\s*\(Half[–-]Whole\)/gi, 'Dim. H–W'], // Combination Diminished (Half–Whole)
-    [/Diminished\s*\(Whole[–-]Half\)/gi, 'Dim. W–H'],       // Diminished (Whole–Half)
-    [/Japanese Scale\s*\(In Sen\)/gi, 'In Sen'],            // Japanese Scale (In Sen)
-    [/Japanese Scale\s*\(In\)/gi, 'In'],                    // Japanese Scale (In)
-    [/Japanese Scale\s*\(Yo\)/gi, 'Yo'],                    // Japanese Scale (Yo)
-
-    // ---- 既存の一般ルール（略称の土台） ----
-    [/Mixolydian b9 b13 \(HP5\)/g, 'HP5'],
-    [/Neapolitan Minor/g, 'N-Minor'],
-    [/Double Harmonic Major/g, 'D-Harm. M.'],
-    [/Harmonic Major/g,'Harm. Maj.'],
-    [/Harmonic Minor/g,'Harm. Min.'],
-    [/Double Harmonic/g,'Dbl Harm.'],
-    [/Neapolitan/g,'Neap.'],
-    [/Mixolydian/g,'Mixolyd.'],
-    [/Lydian/g,'Lyd.'],
-    [/Ionian/g,'Ion.'],
-    [/Aeolian/g,'Aeol.'],
-    [/Persian Scale/g,'Persian'],
-    [/Augmented/g,'Aug.'],
-    [/Diminished/g,'Dim.'],
-    [/Altered/g,'Alt.']        ];
-        let out = String(txt);
-        for (const [r,s] of repl){ out = out.replace(r,s); }
-        return out;
-      }
-
-      function drawPage(rows, placements){
-
-function drawTextWithBox(txt, x, y, size=9) {
-  const fontBase = Math.max(10, Math.floor(mmToPx(size,dpi)/3));
-  ctx.font = `${fontBase}px "Noto Sans JP", system-ui, Arial`;
-  const textWidth = ctx.measureText(txt).width;
-  const textHeight = fontBase * 1.2;
-  const pad = 3;
-
-  // 背景（白）
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(mmX(x) - textWidth/2 - pad,
-               mmY(y) - textHeight + pad,
-               textWidth + pad*2,
-               textHeight);
-
-  // 文字（黒）
-  ctx.fillStyle = '#000000';
-  ctx.textAlign = 'center';
-  ctx.fillText(txt, mmX(x), mmY(y));
+function addJPFonts(doc){
+  // ▼ ここは「後で」Base64を入れる場所。先に枠だけ用意しておく
+  // window.NOTO_SANS_JP_REG = ''; // Base64: NotoSansJP-Regular.ttf
+  // window.NOTO_SANS_JP_BOLD = '...'; // Base64: NotoSansJP-Bold.ttf
+  try{
+    if (window.NOTO_SANS_JP_REG && window.NOTO_SANS_JP_BOLD){
+      doc.addFileToVFS('NotoSansJP-Regular.ttf', window.NOTO_SANS_JP_REG);
+      doc.addFont('NotoSansJP-Regular.ttf', 'NotoSansJP', 'normal');
+      doc.addFileToVFS('NotoSansJP-Bold.ttf', window.NOTO_SANS_JP_BOLD);
+      doc.addFont('NotoSansJP-Bold.ttf', 'NotoSansJP', 'bold');
+      return 'NotoSansJP';
+    }
+  }catch(e){}
+  // フォント未埋め込み時のフォールバック（日本語は□になるがレイアウト確認可）
+  return 'helvetica';
 }
 
-        const dpi = 192;
-        const Wpx = mmToPx(pageW, dpi);
-        const Hpx = mmToPx(pageH, dpi);
-        const canvas = document.createElement('canvas');
-        canvas.width = Wpx; canvas.height = Hpx;
-        const ctx = canvas.getContext('2d');
+function exportPdf(){
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit:'mm', format:'a4', orientation:'landscape', compress:true });
 
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0,0,Wpx,Hpx);
-        ctx.fillStyle = '#000000';
-        ctx.strokeStyle = '#000000';
-        ctx.imageSmoothingEnabled = false;
-        ctx.textBaseline = 'alphabetic';
+  // --- フォント（埋め込み済みなら NotoSansJP、無ければ helvetica）
+  const fontName = addJPFonts(doc);
+  doc.setFont(fontName, 'normal');
 
-        const mmX = (mm)=> Math.round(mm * dpi / 25.4);
-        const mmY = (mm)=> Math.round(mm * dpi / 25.4);
+  // --- ページ・余白
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const margin = { top:18, right:15, bottom:18, left:15 };
+  const contentW = pageW - margin.left - margin.right;
 
-        let cursorY = margin.top;
-        if (titleText){ ctx.font = `${mmToPx(14, dpi)/3}px "Noto Sans JP", system-ui, Arial`; ctx.fillText(titleText, mmX(margin.left), mmY(cursorY)); cursorY += 8; }
-        if (scoreKey){ ctx.font = `${mmToPx(10, dpi)/3}px "Noto Sans JP", system-ui, Arial`; ctx.fillText(`Key: ${scoreKey}`, mmX(margin.left), mmY(cursorY)); cursorY += 10; } else { cursorY += 4; }
+  // --- タイトル／キー
+  const titleEl = document.querySelector('.print-title');
+  const keyEl = document.querySelector('input[placeholder="例: C / G / Fm など"]');
+  const titleText = ((titleEl?.value ?? titleEl?.textContent) || '').trim();
+  const scoreKey  = keyEl?.value || '';
 
-        const staffH = 12; const staffGap = staffH/4; const topOffsets = { chord:-5, staff:0, text: staffH - 6, scale: staffH + 5 };
-        const systemInnerH = staffH + 12; const systemSpacing = 6;
-        const line = (x1,y1,x2,y2,w=0.1)=>{ ctx.lineWidth = mmToPx(w, dpi/1.5); ctx.beginPath(); ctx.moveTo(mmX(x1),mmY(y1)); ctx.lineTo(mmX(x2),mmY(y2)); ctx.stroke(); };
+  // --- エディタの状態
+  const rowsState       = window.__getRows?.() || [[1]];
+  const placementsState = window.__getPlacements?.() || [[{chords:[],texts:[],scales:[]}]];
 
-        function textAt(txt,x,y,align='left',bold=false,size=10,maxWmm=null){
-          ctx.textAlign = (align==='center'?'center':align==='right'?'right':'left');
-          const fontBase = Math.max(10, Math.floor(mmToPx(size,dpi)/3));
-          ctx.font = `${bold?'700':'400'} ${fontBase}px "Noto Sans JP", system-ui, Arial`;
-          if (maxWmm){
-            let px = ctx.measureText(txt).width, maxPx = mmToPx(maxWmm, dpi);
-            let scale = 1.0;
-            while (px > maxPx && scale > 0.8){ scale -= 0.05; ctx.font = `${bold?'700':'400'} ${Math.floor(fontBase*scale)}px "Noto Sans JP", system-ui, Arial`; px = ctx.measureText(txt).width; }
-          }
-          ctx.fillText(txt, mmX(x), mmY(y));
-        }
+  // --- 幅計測（jsPDFベース、単位はmm）
+  function measureTextMm(txt, pt, bold){
+    const prev = { size: doc.internal.getFontSize(), name: doc.getFont().fontName, style: doc.getFont().fontStyle };
+    doc.setFont(fontName, bold ? 'bold' : 'normal');
+    doc.setFontSize(pt);
+    const wMm = doc.getTextDimensions(String(txt||'')).w; // 単位=mm（unit:'mm' のため）
+    doc.setFont(prev.name, prev.style);
+    doc.setFontSize(prev.size);
+    return wMm;
+  }
 
-        function measureTextMm(txt, basePt, bold){
-          const basePx = Math.max(10, Math.floor(mmToPx(basePt,dpi)/3));
-          const font = `${bold?'700':'400'} ${basePx}px "Noto Sans JP", system-ui, Arial`;
-          ctx.save(); ctx.font = font;
-          const wPx = ctx.measureText(txt).width;
-          ctx.restore();
-          return pxToMm(wPx, dpi);
-        }
-        const MIN_GAP_MM = 3;
-        const CHORD_LANES = 3;
-        const TEXT_LANES  = 2;
-        const SCALE_LANES = 2;
-        const LANE_OFFSET_MM = 4.2;
-        const NEAR_X_MM = 6;
-        function layoutLabels(items, xStartMm, wMm, lanes, yDir, basePt, bold){
-          const nodes = items.map((it,i)=>({ i, text:it.text, cx: xStartMm + it.x * wMm }))
-                                .sort((a,b)=>a.cx-b.cx);
-          const laneRight = Array(lanes).fill(-1e9);
-          const lastCx = Array(lanes).fill(-1e9);
-          let lastUsedLane = -1;
-          const placed = [];
-          nodes.forEach(n=>{
-            const valText = n.text || ''; // 空でも幅を測る（0なら最小に）
-            let w = Math.max(4, measureTextMm(valText, basePt, bold)); // 最小幅を確保
-            let lane = 0;
-            while (lane < lanes){
-              const leftMm = n.cx - w/2;
-              const farEnoughX = (n.cx - lastCx[lane]) >= (typeof NEAR_X_MM!=='undefined'?NEAR_X_MM:0);
-              if (leftMm > laneRight[lane] + MIN_GAP_MM && farEnoughX) break;
-              lane++;
-            }
-            if (lane >= lanes) lane = lanes - 1;
-            if (lanes>=2 && lastUsedLane===lane){
-              const tooClose = Math.abs(n.cx - lastCx[lane]) < (NEAR_X_MM*1.2);
-              if (tooClose){ lane = (lane+1)%lanes; }
-            }
-            let scale = 1.0;
-            while ((n.cx - (w*scale)/2) <= (laneRight[lane] + MIN_GAP_MM) && scale > 0.8){
-              scale -= 0.05;
-            }
-            const fitPt = basePt * scale;
-            const fitW  = w * scale;
-            const right = Math.min(xStartMm + wMm, n.cx + fitW/2);
-            laneRight[lane] = right;
-            lastCx[lane] = n.cx;
-            lastUsedLane = lane;
-            placed.push({ i:n.i, cx:n.cx, yOffsetMm: yDir * (lane * LANE_OFFSET_MM), fitPt });
-          });
-          placed.sort((a,b)=>a.i-b.i);
-          return placed;
-        }
-
-        let measureNo = 1; let drawn = 0;
-        for (let r = 0; r < rows.length; r++){
-          const row = rows[r]; const frSum = row.reduce((a,b)=>a+b,0) || 1;
-          const needH = systemInnerH + systemSpacing;
-          if (cursorY + needH > (pageH - margin.bottom)) break;
-
-          const staffTop = cursorY + topOffsets.staff;
-          for (let i=0;i<5;i++){ const y = staffTop + i*staffGap; line(margin.left, y, margin.left + contentW, y, 0.35); }
-          line(margin.left, staffTop, margin.left, staffTop + staffH, 0.5);
-          line(margin.left + contentW, staffTop, margin.left + contentW, staffTop + staffH, 0.5);
-
-          let xCursor = margin.left;
-          for (let c=0; c<row.length; c++){
-            const fr = row[c]; const w = contentW * (fr / frSum);
-            if (c>0){ line(xCursor, staffTop, xCursor, staffTop + staffH, 0.35); }
-            const noY = staffTop - 2.5; textAt(String(measureNo), xCursor + 2, noY, 'left', false, 8);
-            const cell = (placements[r] && placements[r][c]) || { chords:[], texts:[], scales:[] };
-            (function(){
-            const chordItems = (cell.chords||[]);
-            if (chordItems.length){
-              const layoutC = layoutLabels(chordItems, xCursor, w, CHORD_LANES, -1, 11, true);
-              for (let i=0;i<layoutC.length;i++){
-                const p = layoutC[i];
-                const yC = staffTop + topOffsets.chord + p.yOffsetMm;
-                const cxC = xCursor + chordItems[i].x * w;
-                textAt(chordItems[i].text, cxC, yC, 'center', true, p.fitPt, Math.min(w - 3, 30));
-              }
-            }
-            const textItems = (cell.texts||[]);
-            if (textItems.length){
-              const layoutT = layoutLabels(textItems, xCursor, w, TEXT_LANES, +1, 9, false);
-              for (let j=0;j<layoutT.length;j++){
-                const pt = layoutT[j];
-                const yT = staffTop + topOffsets.text + pt.yOffsetMm;
-                const cxT = xCursor + textItems[j].x * w;
-                drawTextWithBox(textItems[j].text || '', cxT, yT, pt.fitPt);
-              }
-            }
-            const scaleItems = (cell.scales||[]);
-            if (scaleItems.length){
-              const layoutS = layoutLabels(scaleItems, xCursor, w, SCALE_LANES, +1, 9, false);
-              for (let j=0;j<layoutS.length;j++){
-                const ps = layoutS[j];
-                const yS = staffTop + topOffsets.scale + ps.yOffsetMm;
-                const cxS = xCursor + scaleItems[j].x * w;
-                textAt(abbreviateScaleName(scaleItems[j].text), cxS, yS, 'center', false, ps.fitPt, Math.min(w - 3, 26));
-              }
-            }
-          })()
-            xCursor += w; measureNo += 1;
-          }
-          cursorY += systemInnerH + systemSpacing; drawn++;
-        }
-        return { canvas, drawnCount: drawn };
+  // --- テキスト描画（中央/右寄せは手計算で補正）
+  function textAt(txt, x, y, {align='left', bold=false, pt=10, maxWmm=null}={}){
+    let size = pt;
+    let w = measureTextMm(txt, size, bold);
+    if (maxWmm && w > maxWmm){
+      while (w > maxWmm && size > pt*0.8){
+        size -= 0.5;
+        w = measureTextMm(txt, size, bold);
       }
-
-      let start = 0;
-      while (start < rowsState.length){
-        const { canvas, drawnCount } = drawPage(rowsState.slice(start), placementsState.slice(start));
-        const img = canvas.toDataURL('image/png');
-        doc.addImage(img, 'PNG', 0, 0, pageW, pageH);
-        start += drawnCount;
-        if (start < rowsState.length) doc.addPage();
-      }
-
-      const filename = (titleText && titleText.trim()) ? `${titleText}.pdf` : 'score.pdf';
-      doc.save(filename);
     }
+    doc.setFont(fontName, bold?'bold':'normal');
+    doc.setFontSize(size);
+    let x0 = x;
+    if (align==='center') x0 = x - w/2;
+    else if (align==='right') x0 = x - w;
+    doc.text(String(txt||''), x0, y);
+  }
+
+  // --- 黒文字＋白ボックス（テキスト用）
+  function drawTextWithBox(txt, x, y, pt=9){
+    const pad = 1.2; // mm
+    const w = measureTextMm(txt, pt, false);
+    const h = pt * 0.42 * 1.2; // おおよその行高(mm)。必要なら微調整OK
+    doc.setFillColor(255,255,255);
+    doc.rect(x - w/2 - pad, y - h + pad*0.6, w + pad*2, h, 'F');
+    doc.setTextColor(0,0,0);
+    textAt(txt, x, y, {align:'center', pt});
+  }
+
+  // --- 線
+  function line(x1,y1,x2,y2,w=0.35){ doc.setLineWidth(w); doc.line(x1,y1,x2,y2); }
+
+  // --- スケール名の省略（既存と同じ）
+  function abbreviateScaleName(txt){
+    const repl = [
+      [/Lydian b7\s*\(Lyd\.?\s*Dominant\)/gi, 'Lyd. b7'],
+      [/Lydian #5\s*\(Lyd\.?\s*Augmented\)/gi, 'Lyd. #5'],
+      [/Locrian natural 6/gi, 'Locrian nat.6'],
+      [/Ionian #5/gi, 'Ion. #5'],
+      [/Dorian #4/gi, 'Dor. #4'],
+      [/Aeolian b5/gi, 'Aeol. b5'],
+      [/Altered Scale\s*\(Super Locrian\)/gi, 'Super Locrian'],
+      [/Combination Diminished\s*\(Half[–-]Whole\)/gi, 'Dim. H–W'],
+      [/Diminished\s*\(Whole[–-]Half\)/gi, 'Dim. W–H'],
+      [/Japanese Scale\s*\(In Sen\)/gi, 'In Sen'],
+      [/Japanese Scale\s*\(In\)/gi, 'In'],
+      [/Japanese Scale\s*\(Yo\)/gi, 'Yo'],
+      [/Mixolydian b9 b13 \(HP5\)/g, 'HP5'],
+      [/Neapolitan Minor/g, 'N-Minor'],
+      [/Double Harmonic Major/g, 'D-Harm. M.'],
+      [/Harmonic Major/g,'Harm. Maj.'],
+      [/Harmonic Minor/g,'Harm. Min.'],
+      [/Double Harmonic/g,'Dbl Harm.'],
+      [/Neapolitan/g,'Neap.'],
+      [/Mixolydian/g,'Mixolyd.'],
+      [/Lydian/g,'Lyd.'],
+      [/Ionian/g,'Ion.'],
+      [/Aeolian/g,'Aeol.'],
+      [/Persian Scale/g,'Persian'],
+      [/Augmented/g,'Aug.'],
+      [/Diminished/g,'Dim.'],
+      [/Altered/g,'Alt.']
+    ];
+    let out = String(txt);
+    for (const [r,s] of repl){ out = out.replace(r,s); }
+    return out;
+  }
+
+  // --- ラベル配置（既存ロジックを jsPDF 計測に差し替え）
+  const MIN_GAP_MM = 3, LANE_OFFSET_MM = 4.2, NEAR_X_MM = 6;
+  function layoutLabels(items, xStartMm, wMm, lanes, yDir, basePt, bold){
+    const nodes = items.map((it,i)=>({ i, text:it.text, cx: xStartMm + it.x * wMm }))
+                       .sort((a,b)=>a.cx-b.cx);
+    const laneRight = Array(lanes).fill(-1e9);
+    const lastCx = Array(lanes).fill(-1e9);
+    let lastUsedLane = -1;
+    const placed = [];
+    nodes.forEach(n=>{
+      const valText = n.text || '';
+      let w = Math.max(4, measureTextMm(valText, basePt, bold));
+      let lane = 0;
+      while (lane < lanes){
+        const leftMm = n.cx - w/2;
+        const farEnoughX = (n.cx - lastCx[lane]) >= NEAR_X_MM;
+        if (leftMm > laneRight[lane] + MIN_GAP_MM && farEnoughX) break;
+        lane++;
+      }
+      if (lane >= lanes) lane = lanes - 1;
+      if (lanes>=2 && lastUsedLane===lane){
+        const tooClose = Math.abs(n.cx - lastCx[lane]) < (NEAR_X_MM*1.2);
+        if (tooClose){ lane = (lane+1)%lanes; }
+      }
+      let scale = 1.0;
+      while ((n.cx - (w*scale)/2) <= (laneRight[lane] + MIN_GAP_MM) && scale > 0.8){
+        scale -= 0.05;
+      }
+      const fitPt = basePt * scale;
+      const fitW  = w * scale;
+      const right = Math.min(xStartMm + wMm, n.cx + fitW/2);
+      laneRight[lane] = right;
+      lastCx[lane] = n.cx;
+      lastUsedLane = lane;
+      placed.push({ i:n.i, cx:n.cx, yOffsetMm: yDir * (lane * LANE_OFFSET_MM), fitPt });
+    });
+    placed.sort((a,b)=>a.i-b.i);
+    return placed;
+  }
+
+  // --- レイアウト定数（既存と同じ）
+  const staffH = 12, staffGap = staffH/4;
+  const topOffsets = { chord:-5, staff:0, text: staffH - 6, scale: staffH + 5 };
+  const systemInnerH = staffH + 12, systemSpacing = 6;
+
+  // --- タイトル
+  let cursorY = margin.top;
+  if (titleText){ textAt(titleText, margin.left, cursorY, {pt:14}); cursorY += 8; }
+  if (scoreKey){  textAt(`Key: ${scoreKey}`, margin.left, cursorY, {pt:10}); cursorY += 10; } else { cursorY += 4; }
+
+  // --- 本文
+  let measureNo = 1;
+  for (let r=0; r<rowsState.length; r++){
+    const row = rowsState[r]; const frSum = row.reduce((a,b)=>a+b,0) || 1;
+    const needH = systemInnerH + systemSpacing;
+    if (cursorY + needH > (pageH - margin.bottom)){
+      doc.addPage();
+      cursorY = margin.top;
+    }
+
+    const staffTop = cursorY + topOffsets.staff;
+
+    // 五線
+    for (let i=0;i<5;i++){
+      const y = staffTop + i*staffGap;
+      line(margin.left, y, margin.left + contentW, y, 0.35);
+    }
+    // 左右縦線
+    line(margin.left, staffTop, margin.left, staffTop + staffH, 0.5);
+    line(margin.left + contentW, staffTop, margin.left + contentW, staffTop + staffH, 0.5);
+
+    let xCursor = margin.left;
+
+    for (let c=0; c<row.length; c++){
+      const fr = row[c]; const wMm = contentW * (fr / frSum);
+
+      if (c>0) line(xCursor, staffTop, xCursor, staffTop + staffH, 0.35);
+
+      // 小節番号
+      textAt(String(measureNo), xCursor + 2, staffTop - 2.5, {pt:8});
+
+      const cell = (placementsState[r] && placementsState[r][c]) || { chords:[], texts:[], scales:[] };
+
+      // コード
+      const chordItems = (cell.chords||[]);
+      if (chordItems.length){
+        const layoutC = layoutLabels(chordItems, xCursor, wMm, 3, -1, 11, true);
+        for (let i=0;i<layoutC.length;i++){
+          const p = layoutC[i];
+          const yC = staffTop + topOffsets.chord + p.yOffsetMm;
+          const cx = xCursor + chordItems[i].x * wMm;
+          textAt(chordItems[i].text, cx, yC, {align:'center', bold:true, pt:p.fitPt, maxWmm: Math.min(wMm - 3, 30)});
+        }
+      }
+
+      // テキスト（白箱）
+      const textItems = (cell.texts||[]);
+      if (textItems.length){
+        const layoutT = layoutLabels(textItems, xCursor, wMm, 2, +1, 9, false);
+        for (let j=0;j<layoutT.length;j++){
+          const p = layoutT[j];
+          const yT = staffTop + topOffsets.text + p.yOffsetMm;
+          const cx = xCursor + textItems[j].x * wMm;
+          drawTextWithBox(textItems[j].text || '', cx, yT, p.fitPt);
+        }
+      }
+
+      // スケール
+      const scaleItems = (cell.scales||[]);
+      if (scaleItems.length){
+        const layoutS = layoutLabels(scaleItems, xCursor, wMm, 2, +1, 9, false);
+        for (let j=0;j<layoutS.length;j++){
+          const p = layoutS[j];
+          const yS = staffTop + topOffsets.scale + p.yOffsetMm;
+          const cx = xCursor + scaleItems[j].x * wMm;
+          textAt(abbreviateScaleName(scaleItems[j].text), cx, yS, {align:'center', pt:p.fitPt, maxWmm: Math.min(wMm - 3, 26)});
+        }
+      }
+
+      xCursor += wMm; measureNo++;
+    }
+
+    cursorY += systemInnerH + systemSpacing;
+  }
+
+  const filename = (titleText && titleText.trim()) ? `${titleText}.pdf` : 'score.pdf';
+  doc.save(filename);
+}
+
+//ここまで
 
     const root = ReactDOM.createRoot(document.getElementById('root'));
     root.render(React.createElement(App, null));
