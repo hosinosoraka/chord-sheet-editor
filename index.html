@@ -147,6 +147,7 @@
                   requestAnimationFrame(()=>{
                     const el = e.currentTarget;
                     if (!el) return;
+                    el.textContent = t.text || '';
                     el.focus();
                     const r = document.createRange();
                     r.selectNodeContents(el);
@@ -160,6 +161,7 @@
                 draggable:false,
                 onDragStart:(e)=>e.preventDefault(),
                 contentEditable: editing ? 'plaintext-only' : false,
+                onFocus: editing ? (e)=>{ if(!e.currentTarget.textContent){ e.currentTarget.textContent = t.text || ''; } } : undefined,
                 suppressContentEditableWarning: true,
                 onInput: editing ? (e)=> onEditTextInput(rowIdx, index, idx, e.currentTarget.textContent || '') : undefined,
                 onBlur:(e)=> onEditTextBlur(),
@@ -785,56 +787,42 @@ React.createElement('main', { className:'flex-1 min-w-0 p-6', ref: containerRef 
 
       function mmToPx(mm, dpi=192){ return Math.round(mm * dpi / 25.4); }
       function pxToMm(px, dpi){ return px * 25.4 / dpi; }
-
-
-    // ---- スケール名の省略表示 ----
-function abbreviateScaleName(txt){
-  const repl = [
+      function abbreviateScaleName(txt){
+        const repl = [
     // ---- 個別：特に長いもの（先に評価） ----
-    [/Lydian b7\s*\(Lydian Dominant\)/gi, 'Lyd. Dom.'],   // Lydian Dominant
-    [/Lydian #5\s*\(Lydian Augmented\)/gi, 'Lyd. #5'],
-    [/Locrian natural 6/gi, 'Locrian nat.6'],
-    [/Ionian #5/gi, 'Ion. #5'],
-    [/Dorian #4/gi, 'Dor. #4'],
-    [/Aeolian b5/gi, 'Aeol. b5'],
-    [/Altered Scale\s*\(Super Locrian\)/gi, 'Super Locrian'],
-    [/Combination Diminished\s*\(Half[–-]Whole\)/gi, 'Dim. H–W'],
-    [/Diminished\s*\(Whole[–-]Half\)/gi, 'Dim. W–H'],
-    [/Japanese Scale\s*\(In Sen\)/gi, 'In Sen'],
-    [/Japanese Scale\s*\(In\)/gi, 'In'],
-    [/Japanese Scale\s*\(Yo\)/gi, 'Yo'],
-    [/Natural Minor\s*\(Aeolian\)/gi, 'Nat. Min. (Aeol.)'],
-    [/Major\s*\(Ionian\)/gi, 'Maj. (Ion.)'],
-    [/Whole Tone Scale/gi, 'Whole Tone'],
-    [/Enigmatic Scale/gi, 'Enigmatic'],
-    [/Bebop Major Scale/gi, 'Bebop Maj.'],
-    [/Bebop Dominant Scale/gi, 'Bebop Dom.'],
-    [/Bebop Minor Scale/gi, 'Bebop Min.'],
-    [/Hungarian Minor/gi, 'Hung. Min.'],
-    [/Arabian Scale/gi, 'Arabian'],
-    [/Raga Todi/gi, 'Raga Todi'],
+    [/Lydian b7\s*\(Lyd\.?\s*Dominant\)/gi, 'Lyd. b7'],     // Lydian b7 (Lydian Dominant)
+    [/Lydian #5\s*\(Lyd\.?\s*Augmented\)/gi, 'Lyd. #5'],    // Lydian #5 (Lydian Augmented)
+    [/Locrian natural 6/gi, 'Locrian nat.6'],               // Locrian natural 6
+    [/Ionian #5/gi, 'Ion. #5'],                             // Ionian #5
+    [/Dorian #4/gi, 'Dor. #4'],                             // Dorian #4
+    [/Aeolian b5/gi, 'Aeol. b5'],                           // Aeolian b5
+    [/Altered Scale\s*\(Super Locrian\)/gi, 'Super Locrian'], // Altered Scale (Super Locrian)
+    [/Combination Diminished\s*\(Half[–-]Whole\)/gi, 'Dim. H–W'], // Combination Diminished (Half–Whole)
+    [/Diminished\s*\(Whole[–-]Half\)/gi, 'Dim. W–H'],       // Diminished (Whole–Half)
+    [/Japanese Scale\s*\(In Sen\)/gi, 'In Sen'],            // Japanese Scale (In Sen)
+    [/Japanese Scale\s*\(In\)/gi, 'In'],                    // Japanese Scale (In)
+    [/Japanese Scale\s*\(Yo\)/gi, 'Yo'],                    // Japanese Scale (Yo)
 
     // ---- 既存の一般ルール（略称の土台） ----
     [/Mixolydian b9 b13 \(HP5\)/g, 'HP5'],
     [/Neapolitan Minor/g, 'N-Minor'],
     [/Double Harmonic Major/g, 'D-Harm. M.'],
-    [/Harmonic Major/g, 'Harm. Maj.'],
-    [/Harmonic Minor/g, 'Harm. Min.'],
-    [/Double Harmonic/g, 'Dbl Harm.'],
-    [/Neapolitan/g, 'Neap.'],
-    [/Mixolydian/g, 'Mixolyd.'],
-    [/Lydian/g, 'Lyd.'],
-    [/Ionian/g, 'Ion.'],
-    [/Aeolian/g, 'Aeol.'],
-    [/Persian Scale/g, 'Persian'],
-    [/Augmented/g, 'Aug.'],
-    [/Diminished/g, 'Dim.'],
-    [/Altered/g, 'Alt.']
-  ];
-  let out = String(txt);
-  for (const [r, s] of repl) out = out.replace(r, s);
-  return out;
-}
+    [/Harmonic Major/g,'Harm. Maj.'],
+    [/Harmonic Minor/g,'Harm. Min.'],
+    [/Double Harmonic/g,'Dbl Harm.'],
+    [/Neapolitan/g,'Neap.'],
+    [/Mixolydian/g,'Mixolyd.'],
+    [/Lydian/g,'Lyd.'],
+    [/Ionian/g,'Ion.'],
+    [/Aeolian/g,'Aeol.'],
+    [/Persian Scale/g,'Persian'],
+    [/Augmented/g,'Aug.'],
+    [/Diminished/g,'Dim.'],
+    [/Altered/g,'Alt.']        ];
+        let out = String(txt);
+        for (const [r,s] of repl){ out = out.replace(r,s); }
+        return out;
+      }
 
       function drawPage(rows, placements){
 
